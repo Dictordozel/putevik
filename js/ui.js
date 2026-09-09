@@ -34,6 +34,7 @@ const $ = (id) => document.getElementById(id);
 
 export function createUI(handlers) {
     const el = {
+        app: $('app'),
         drawer: $('drawer'),
         handle: $('drawer-handle'),
         peekPct: $('peek-pct'),
@@ -101,15 +102,57 @@ export function createUI(handlers) {
     /* ============================== Drawer ============================== */
 
     const DRAWER_ORDER = ['peek', 'half', 'full'];
+    const DRAG_THRESHOLD = 24;   // px, дальше жест считается свайпом, а не тапом
 
     function setDrawer(stateName) {
+        el.app.dataset.drawer = stateName;
         el.drawer.dataset.state = stateName;
         el.handle.setAttribute('aria-expanded', String(stateName !== 'peek'));
     }
 
-    el.handle.addEventListener('click', () => {
-        const i = DRAWER_ORDER.indexOf(el.drawer.dataset.state);
-        setDrawer(DRAWER_ORDER[(i + 1) % DRAWER_ORDER.length]);
+    function currentDrawer() {
+        return el.app.dataset.drawer || 'peek';
+    }
+
+    /** Тап по хваталке: сворачивает раскрытую панель и раскрывает свёрнутую. */
+    function toggleDrawer() {
+        setDrawer(currentDrawer() === 'peek' ? 'half' : 'peek');
+    }
+
+    /** Свайп: шаг по состояниям вверх или вниз, без закольцовывания. */
+    function shiftDrawer(step) {
+        const i = DRAWER_ORDER.indexOf(currentDrawer());
+        const next = Math.min(DRAWER_ORDER.length - 1, Math.max(0, i + step));
+        setDrawer(DRAWER_ORDER[next]);
+    }
+
+    let dragStartY = null;
+    let dragMoved = false;
+
+    el.handle.addEventListener('pointerdown', (event) => {
+        dragStartY = event.clientY;
+        dragMoved = false;
+    });
+
+    el.handle.addEventListener('pointermove', (event) => {
+        if (dragStartY === null) return;
+        if (Math.abs(event.clientY - dragStartY) > DRAG_THRESHOLD) dragMoved = true;
+    });
+
+    el.handle.addEventListener('pointerup', (event) => {
+        if (dragStartY === null) return;
+        const dy = event.clientY - dragStartY;
+        dragStartY = null;
+        if (dragMoved) shiftDrawer(dy < 0 ? 1 : -1);
+        else toggleDrawer();
+    });
+
+    el.handle.addEventListener('pointercancel', () => { dragStartY = null; });
+
+    // Клавиатура: Enter и Space дают click с detail === 0, мышиный тап — нет,
+    // поэтому обработчики жеста и клавиатуры не конфликтуют.
+    el.handle.addEventListener('click', (event) => {
+        if (event.detail === 0) toggleDrawer();
     });
 
     /* ============================== Кнопки ============================== */

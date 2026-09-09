@@ -51,8 +51,8 @@ const mapView = createMapView({
     onMapClick(latlng) {
         if (!addMode) return;
         const place = store.addCheckpoint(latlng);
-        setAddMode(false);
-        ui.setDrawer('half');
+        // Режим добавления остаётся включённым: маршрут строится серией тапов.
+        // Выключается кнопкой «Готово» в подсказке или той же плавающей кнопкой.
         ui.toast(`Добавлена точка «${place.name}»`, 'ok');
     },
 
@@ -233,7 +233,13 @@ function buildHandlers() {
     return {
         onToggleAdd(force) {
             setAddMode(typeof force === 'boolean' ? force : !addMode);
-            if (addMode) requestWakeLock();
+
+            if (addMode) {
+                requestWakeLock();
+                ui.setDrawer('peek');   // освобождаем карту под расстановку точек
+            } else if (store.activePlaces().length) {
+                ui.setDrawer('half');   // закончили — показываем список и прогресс
+            }
         },
 
         onLocate() {

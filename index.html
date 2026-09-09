@@ -21,7 +21,7 @@
 </head>
 
 <body>
-    <div class="app">
+    <div class="app" id="app" data-drawer="peek">
 
         <!-- ========== Карта и всё, что лежит поверх неё ========== -->
         <main class="map-pane">
@@ -44,8 +44,8 @@
 
             <!-- Подсказка режима добавления точки -->
             <div class="add-hint" id="add-hint" hidden role="status">
-                Тапните по карте, чтобы поставить точку
-                <button class="add-hint__cancel" id="btn-add-cancel" type="button">Отмена</button>
+                Тапайте по карте — точки добавляются одна за другой
+                <button class="add-hint__cancel" id="btn-add-cancel" type="button">Готово</button>
             </div>
 
             <!-- Плавающие кнопки -->

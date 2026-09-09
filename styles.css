@@ -28,7 +28,12 @@
     --shadow-sm: 0 2px 8px rgba(16, 30, 54, .10);
 
     --peek-h: 68px;
+    --half-h: 46dvh;
     --drawer-h: 88dvh;
+    /* Сколько панели видно снизу. От этой величины зависит не только сдвиг
+       самой панели, но и положение плавающих кнопок и тостов — иначе
+       раскрытая панель накрывает кнопку добавления точки. */
+    --visible: var(--peek-h);
     --safe-b: env(safe-area-inset-bottom, 0px);
 
     --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -86,6 +91,20 @@ body {
     position: relative;
     height: 100dvh;
     overflow: hidden;
+}
+
+/* Состояние панели живёт на .app, чтобы его видели и сама панель,
+   и кнопки с тостами, которые лежат в другой ветке разметки. */
+.app[data-drawer="peek"] {
+    --visible: var(--peek-h);
+}
+
+.app[data-drawer="half"] {
+    --visible: var(--half-h);
+}
+
+.app[data-drawer="full"] {
+    --visible: var(--drawer-h);
 }
 
 .map-pane {
@@ -243,11 +262,19 @@ body {
 .fabs {
     position: absolute;
     right: 12px;
-    bottom: calc(var(--peek-h) + 16px + var(--safe-b));
-    z-index: 500;
+    bottom: calc(var(--visible) + 14px + var(--safe-b));
+    z-index: 650;
+    /* выше панели: кнопка добавления точки не должна прятаться под ней */
     display: flex;
     flex-direction: column;
     gap: 10px;
+    transition: bottom .26s cubic-bezier(.22, .61, .36, 1);
+}
+
+/* В полностью раскрытой панели карты почти не видно — кнопки там лишние. */
+.app[data-drawer="full"] .fabs {
+    opacity: 0;
+    pointer-events: none;
 }
 
 .fab {
@@ -306,20 +333,9 @@ body {
     border-top: 1px solid var(--line);
     border-radius: 18px 18px 0 0;
     box-shadow: var(--shadow);
+    transform: translateY(calc(var(--drawer-h) - var(--visible)));
     transition: transform .26s cubic-bezier(.22, .61, .36, 1);
     will-change: transform;
-}
-
-.drawer[data-state="peek"] {
-    transform: translateY(calc(var(--drawer-h) - var(--peek-h)));
-}
-
-.drawer[data-state="half"] {
-    transform: translateY(46%);
-}
-
-.drawer[data-state="full"] {
-    transform: translateY(0);
 }
 
 .drawer__handle {
@@ -335,7 +351,13 @@ body {
     color: inherit;
     font: inherit;
     text-align: left;
-    cursor: pointer;
+    cursor: grab;
+    touch-action: none;
+    /* вертикальный свайп по хваталке не должен уезжать в прокрутку страницы */
+}
+
+.drawer__handle:active {
+    cursor: grabbing;
 }
 
 .drawer__grip {
@@ -969,7 +991,9 @@ body {
 .toasts {
     position: fixed;
     left: 50%;
-    bottom: calc(var(--peek-h) + 22px + var(--safe-b));
+    /* Поднимаются вместе с панелью, но не выше её среднего положения:
+       иначе в полностью раскрытой панели уехали бы за край экрана. */
+    bottom: calc(min(var(--visible), var(--half-h)) + 20px + var(--safe-b));
     transform: translateX(-50%);
     z-index: 1200;
     display: flex;
@@ -1157,8 +1181,15 @@ body {
         padding-top: 16px;
     }
 
+    /* Панель здесь — постоянный сайдбар, карту она не накрывает,
+       поэтому состояние drawer на кнопки и тосты больше не влияет. */
     .fabs {
         bottom: 22px;
+    }
+
+    .app[data-drawer="full"] .fabs {
+        opacity: 1;
+        pointer-events: auto;
     }
 
     .toasts {
