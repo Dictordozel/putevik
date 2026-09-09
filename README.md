@@ -16,10 +16,15 @@
 
 ```bash
 cd путь/к/проекту
-py -m http.server 8000        # на этой машине работает py, не python
+python -m http.server 8000
 ```
 
 Затем откройте `http://localhost:8000/`.
+
+> **Если на Windows `python` падает с «The system cannot find the path specified»** —
+> это сломанный ярлык-псевдоним Microsoft Store в `%LOCALAPPDATA%\Microsoft\WindowsApps`,
+> а не отсутствие Python. Штатный лончер при этом работает:
+> `py -m http.server 8000`.
 
 ## Как проверить с телефона
 
