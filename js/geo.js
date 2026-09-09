@@ -61,7 +61,9 @@ export function createTracker({ onUpdate, onStatus }) {
     function handleError(error) {
         switch (error.code) {
             case 1: // PERMISSION_DENIED
-                setStatus('denied', 'Доступ к геопозиции запрещён. Разрешите его в настройках сайта или включите режим симуляции.');
+                // Chrome блокирует доступ и молча, если запрос несколько раз
+                // проигнорировать, — поэтому подсказываем, где именно сбросить.
+                setStatus('denied', 'Доступ к геопозиции запрещён. Нажмите значок настроек слева от адреса → «Сбросить разрешения», либо включите режим симуляции в разделе «Отладка».');
                 stopReal();
                 break;
             case 2: // POSITION_UNAVAILABLE

@@ -72,6 +72,7 @@ export function createUI(handlers) {
         btnResetProgress: $('btn-reset-progress'),
         btnClearRoute: $('btn-clear-route'),
 
+        devPanel: $('dev-panel'),
         simToggle: $('sim-toggle'),
         simControls: $('sim-controls'),
         btnAutowalk: $('btn-autowalk'),
@@ -94,6 +95,7 @@ export function createUI(handlers) {
 
     let expandedId = null;   // какой редактор точки раскрыт
     let listSignature = '';  // структура списка: пока не менялась — не перерисовываем
+    let devHinted = false;   // раздел отладки уже раскрывали из-за проблем с GPS
     const rows = new Map();  // placeId → узлы пункта списка
 
     /* ============================== Drawer ============================== */
@@ -301,6 +303,14 @@ export function createUI(handlers) {
 
         el.devGps.textContent = detail ? `${status} — ${detail}` : status;
         el.devCoords.textContent = fix ? `${fix.lat.toFixed(5)}, ${fix.lng.toFixed(5)}` : '—';
+
+        // Настоящий GPS недоступен — единственный способ продолжить это симуляция,
+        // поэтому один раз сами раскрываем раздел с её тумблером.
+        if (!devHinted && ['denied', 'insecure', 'unavailable'].includes(status)) {
+            devHinted = true;
+            el.devPanel.open = true;
+            setDrawer('half');
+        }
     }
 
     function setFixAge(ms) {
