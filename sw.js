@@ -12,7 +12,7 @@
  *    хранилище растёт бесконечно.
  */
 
-const VERSION = 'v4';
+const VERSION = 'v5';
 const SHELL_CACHE = `putevik-shell-${VERSION}`;
 const TILE_CACHE = 'putevik-tiles-v1';
 

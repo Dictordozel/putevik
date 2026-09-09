@@ -75,12 +75,21 @@
 
             <div class="drawer__body" id="drawer-body">
 
-                <header class="route-head">
-                    <label class="route-head__label" for="route-name">Маршрут</label>
-                    <input class="route-head__name" id="route-name" type="text" maxlength="60"
-                        placeholder="Без названия" autocomplete="off" spellcheck="false">
-                    <button class="btn btn--ghost" id="btn-routes" type="button">Мои маршруты</button>
-                </header>
+                <button class="route-picker" id="route-picker" type="button" aria-haspopup="dialog">
+                    <span class="route-picker__label">Маршрут</span>
+                    <span class="route-picker__name" id="route-picker-name">Не выбран</span>
+                    <span class="route-picker__chevron" aria-hidden="true">▾</span>
+                </button>
+
+                <section class="pick-prompt" id="pick-prompt" hidden>
+                    <p class="pick-prompt__text">
+                        Маршрут не выбран. Откройте сохранённый или создайте новый —
+                        приложение ничего не активирует само.
+                    </p>
+                    <button class="btn btn--primary" id="btn-pick" type="button">Выбрать маршрут</button>
+                </section>
+
+                <div class="route-active" id="route-active">
 
                 <section class="progress" aria-label="Прогресс прохождения">
                     <div class="progress__bar" role="progressbar" id="progress-bar" aria-valuemin="0"
@@ -127,6 +136,8 @@
                     <button class="btn" id="btn-reset-progress" type="button">Сбросить прогресс</button>
                     <button class="btn btn--danger" id="btn-clear-route" type="button">Очистить маршрут</button>
                 </footer>
+
+                </div>
 
                 <details class="dev" id="steps-panel">
                     <summary class="dev__summary">Шаг и рост</summary>
@@ -197,7 +208,13 @@
             <button class="sheet__close" id="btn-routes-close" type="button" aria-label="Закрыть">×</button>
         </header>
 
+        <div class="sheet__search">
+            <input class="field__input" id="route-search" type="search" autocomplete="off"
+                placeholder="Поиск по названию маршрута или точки">
+        </div>
+
         <ul class="route-list" id="route-list"></ul>
+        <p class="empty-note" id="route-empty" hidden></p>
 
         <footer class="sheet__foot">
             <button class="btn btn--primary" id="btn-new-route" type="button">+ Новый маршрут</button>

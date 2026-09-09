@@ -59,6 +59,7 @@ let arrivalStreak = 0;
 let streakTargetId = null;
 let wakeLock = null;
 let updateReady = false;
+let routeQuery = '';   // текущий фильтр в списке маршрутов
 
 /** Калибровка длины шага: копим пройденное по GPS, потом делим на число шагов. */
 const IDLE_CALIBRATION = { active: false, awaiting: false, meters: 0, lastPoint: null };
@@ -71,7 +72,14 @@ const mapView = createMapView({
 
     onMapClick(latlng) {
         if (!addMode) return;
+
         const place = store.addCheckpoint(latlng);
+        if (!place) {
+            ui.toast('Сначала выберите маршрут', 'warn');
+            setAddMode(false);
+            return;
+        }
+
         // Режим добавления остаётся включённым: маршрут строится серией тапов.
         // Выключается кнопкой «Готово» в подсказке или той же плавающей кнопкой.
         ui.toast(`Добавлена точка «${place.name}»`, 'ok');
@@ -201,7 +209,7 @@ function renderAll() {
     mapView.setLeg(lastFix, target);
 
     ui.render({
-        routeName: store.activeRoute().name,
+        routeName: store.activeRoute()?.name ?? null,
         places,
         statuses,
         stats: store.routeStats(),
@@ -234,7 +242,7 @@ function renderCalibration() {
 
 function renderRoutesSheet() {
     const state = store.getState();
-    ui.renderRoutes(state.routes, state.activeRouteId, (id) => store.routeStats(id));
+    ui.renderRoutes(store.searchRoutes(routeQuery), state.activeRouteId, (id) => store.routeStats(id));
 }
 
 store.subscribe(renderAll);
@@ -308,10 +316,6 @@ function buildHandlers() {
                 tracker.retry();
                 ui.toast('Ищем вашу позицию…');
             }
-        },
-
-        onRenameActiveRoute(name) {
-            store.renameRoute(store.getState().activeRouteId, name);
         },
 
         onEditPlace(id, patch) {
@@ -425,24 +429,39 @@ function buildHandlers() {
         },
 
         onOpenRoutes() {
+            routeQuery = '';
+            ui.clearRouteSearch();
             renderRoutesSheet();
             ui.openRoutesSheet();
+        },
+
+        onSearchRoutes(query) {
+            routeQuery = query;
+            renderRoutesSheet();
         },
 
         onSelectRoute(id) {
             store.selectRoute(id);
             ui.invalidateList();
             ui.closeRoutesSheet();
-            mapView.fitRoute(store.activePlaces());
+
+            const places = store.activePlaces();
+            if (places.length) {
+                mapView.fitRoute(places);
+                ui.setDrawer('half');
+            }
             ui.toast(`Маршрут «${store.activeRoute().name}» открыт`);
         },
 
         onNewRoute() {
-            const route = store.createRoute();
+            const name = prompt('Название маршрута:', 'Новый маршрут');
+            if (name === null) return;
+
+            const route = store.createRoute(name.trim() || 'Новый маршрут');
             ui.invalidateList();
             ui.closeRoutesSheet();
             setAddMode(true);
-            ui.toast(`Создан «${route.name}» — тапните по карте`, 'ok');
+            ui.toast(`Создан «${route.name}» — тапайте по карте`, 'ok');
         },
 
         onRenameRoute(id, current) {
@@ -459,11 +478,13 @@ function buildHandlers() {
         },
 
         onDeleteRoute(id, name) {
-            if (!confirm(`Удалить маршрут «${name}»? Это действие не отменить.`)) return;
+            if (!confirm(`Удалить маршрут «${name}» вместе с его точками и прогрессом? Это действие не отменить.`)) return;
+
+            const wasActive = store.getState().activeRouteId === id;
             store.deleteRoute(id);
             ui.invalidateList();
             renderRoutesSheet();
-            ui.toast('Маршрут удалён');
+            ui.toast(wasActive ? 'Маршрут удалён, выберите другой' : 'Маршрут удалён');
         },
 
         onExport() {
@@ -550,11 +571,8 @@ function boot() {
         ui.toast('Хранилище переполнено — изменения больше не сохраняются', 'error');
     });
 
-    const places = store.activePlaces();
-    if (places.length) {
-        mapView.fitRoute(places);
-        ui.setDrawer('half');
-    }
+    // Ничего не активируем сами: маршрут выбирается явно, из списка.
+    store.deselectRoute();
 
     renderAll();
     renderCalibration();

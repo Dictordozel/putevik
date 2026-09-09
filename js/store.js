@@ -32,12 +32,11 @@ function uid(prefix) {
 }
 
 function defaultState() {
-    const route = { id: uid('rt'), name: 'Мой маршрут', placeIds: [], createdAt: now(), updatedAt: now() };
     return {
         version: VERSION,
         places: {},
-        routes: [route],
-        activeRouteId: route.id,
+        routes: [],
+        activeRouteId: null,
         progress: {},
         settings: {
             autoFollow: true,
@@ -55,11 +54,8 @@ function migrate(raw) {
 
     // Страховка от частично битых данных: любое поле не того типа заменяем дефолтом.
     if (!state.places || typeof state.places !== 'object') state.places = {};
-    if (!Array.isArray(state.routes) || state.routes.length === 0) {
-        const fresh = defaultState();
-        state.routes = fresh.routes;
-        state.activeRouteId = fresh.activeRouteId;
-    }
+    // Пустой список маршрутов — законное состояние: всё удалили.
+    if (!Array.isArray(state.routes)) state.routes = [];
     if (!state.progress || typeof state.progress !== 'object') state.progress = {};
     state.settings = { ...defaultState().settings, ...(state.settings || {}) };
 
@@ -68,7 +64,7 @@ function migrate(raw) {
         route.placeIds = (route.placeIds || []).filter((id) => state.places[id]);
     }
     if (!state.routes.some((r) => r.id === state.activeRouteId)) {
-        state.activeRouteId = state.routes[0].id;
+        state.activeRouteId = null;
     }
     return state;
 }
@@ -170,13 +166,20 @@ document.addEventListener('visibilitychange', () => {
 
 /* ============================== Выборки ============================== */
 
+/**
+ * Активный маршрут или null.
+ *
+ * При запуске ничего не активируется само: пользователь выбирает маршрут
+ * явно, поэтому null здесь — нормальное состояние, а не ошибка.
+ */
 export function activeRoute() {
-    return state.routes.find((r) => r.id === state.activeRouteId) || state.routes[0];
+    return state.routes.find((r) => r.id === state.activeRouteId) ?? null;
 }
 
 /** Места активного маршрута в порядке прохождения. */
 export function activePlaces() {
     const route = activeRoute();
+    if (!route) return [];
     return route.placeIds.map((id) => state.places[id]).filter(Boolean);
 }
 
@@ -245,6 +248,7 @@ export function rejoinPoint() {
     const places = activePlaces();
     if (places.length === 0) return null;
 
+
     const completed = activeProgress().completedIds;
     for (let i = places.length - 1; i >= 0; i--) {
         if (completed.includes(places[i].id)) return places[i];
@@ -302,6 +306,8 @@ export function routeStats(routeId = state.activeRouteId) {
 /** Создаёт место и добавляет его в конец активного маршрута. */
 export function addCheckpoint({ lat, lng }) {
     const route = activeRoute();
+    if (!route) return null;
+
     const isFirst = route.placeIds.length === 0;
     const place = {
         id: uid('pl'),
@@ -337,12 +343,15 @@ export function updatePlace(id, patch) {
         place.lng = patch.lng;
     }
 
-    activeRoute().updatedAt = now();
+    const route = activeRoute();
+    if (route) route.updatedAt = now();
     commit();
 }
 
 export function removeCheckpoint(id) {
     const route = activeRoute();
+    if (!route) return;
+
     route.placeIds = route.placeIds.filter((pid) => pid !== id);
     route.updatedAt = now();
 
@@ -359,6 +368,8 @@ export function removeCheckpoint(id) {
 /** Сдвигает точку по маршруту: direction -1 — выше, +1 — ниже. */
 export function moveCheckpoint(id, direction) {
     const route = activeRoute();
+    if (!route) return;
+
     const from = route.placeIds.indexOf(id);
     const to = from + direction;
     if (from === -1 || to < 0 || to >= route.placeIds.length) return;
@@ -383,6 +394,8 @@ function ensureProgress(routeId) {
  * Порядок не проверяется: засчитать или отметить можно любую точку маршрута.
  */
 export function setCheckpointState(placeId, next) {
+    if (!state.activeRouteId) return false;
+
     const progress = ensureProgress(state.activeRouteId);
     if (!progress.skippedIds) progress.skippedIds = [];
 
@@ -416,6 +429,8 @@ export function resetProgress(routeId = state.activeRouteId) {
 
 export function clearActiveRoute() {
     const route = activeRoute();
+    if (!route) return;
+
     route.placeIds = [];
     route.updatedAt = now();
     delete state.progress[route.id];
@@ -437,6 +452,32 @@ export function selectRoute(id) {
     if (!state.routes.some((r) => r.id === id)) return;
     state.activeRouteId = id;
     commit();
+}
+
+/** Снять выбор — состояние «маршрут не выбран». */
+export function deselectRoute() {
+    state.activeRouteId = null;
+    commit();
+}
+
+/**
+ * Поиск маршрута по названию и по названиям точек внутри него:
+ * название забывается быстрее, чем то, что на маршруте было.
+ */
+export function searchRoutes(query) {
+    const q = String(query ?? '').trim().toLowerCase();
+    if (!q) return state.routes;
+
+    return state.routes.filter((route) => {
+        if (route.name.toLowerCase().includes(q)) return true;
+        return route.placeIds.some((id) => {
+            const place = state.places[id];
+            return place && (
+                place.name.toLowerCase().includes(q) ||
+                place.note.toLowerCase().includes(q)
+            );
+        });
+    });
 }
 
 export function renameRoute(id, name) {
@@ -471,16 +512,16 @@ export function duplicateRoute(id) {
     return route;
 }
 
+/**
+ * Удаляет маршрут вместе с его прогрессом.
+ *
+ * Последний маршрут теперь тоже удаляется: пустой список — законное
+ * состояние, приложение показывает «Выберите маршрут» и предлагает создать.
+ */
 export function deleteRoute(id) {
-    if (state.routes.length <= 1) {
-        // Последний маршрут не удаляем — вместо этого очищаем, чтобы приложению
-        // всегда было что показывать.
-        clearActiveRoute();
-        return;
-    }
     state.routes = state.routes.filter((r) => r.id !== id);
     delete state.progress[id];
-    if (state.activeRouteId === id) state.activeRouteId = state.routes[0].id;
+    if (state.activeRouteId === id) state.activeRouteId = null;
     gcPlaces();
     commit();
 }

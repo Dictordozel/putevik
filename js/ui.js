@@ -46,8 +46,13 @@ export function createUI(handlers) {
         peekPct: $('peek-pct'),
         peekNext: $('peek-next'),
 
-        routeName: $('route-name'),
-        btnRoutes: $('btn-routes'),
+        routePicker: $('route-picker'),
+        routePickerName: $('route-picker-name'),
+        pickPrompt: $('pick-prompt'),
+        btnPick: $('btn-pick'),
+        routeActive: $('route-active'),
+        routeSearch: $('route-search'),
+        routeEmpty: $('route-empty'),
 
         progressBar: $('progress-bar'),
         progressFill: $('progress-fill'),
@@ -173,15 +178,13 @@ export function createUI(handlers) {
     el.btnAddCancel.addEventListener('click', () => handlers.onToggleAdd?.(false));
     el.fabLocate.addEventListener('click', () => handlers.onLocate?.());
 
-    el.routeName.addEventListener('change', () => handlers.onRenameActiveRoute?.(el.routeName.value));
-    el.routeName.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') el.routeName.blur();
-    });
+    el.routePicker.addEventListener('click', () => handlers.onOpenRoutes?.());
+    el.btnPick.addEventListener('click', () => handlers.onOpenRoutes?.());
+    el.routeSearch.addEventListener('input', () => handlers.onSearchRoutes?.(el.routeSearch.value));
 
     el.btnResetProgress.addEventListener('click', () => handlers.onResetProgress?.());
     el.btnClearRoute.addEventListener('click', () => handlers.onClearRoute?.());
 
-    el.btnRoutes.addEventListener('click', () => handlers.onOpenRoutes?.());
     el.btnRoutesClose.addEventListener('click', () => el.sheet.close());
     el.btnNewRoute.addEventListener('click', () => handlers.onNewRoute?.());
     el.btnExport.addEventListener('click', () => handlers.onExport?.());
@@ -311,7 +314,23 @@ export function createUI(handlers) {
     function render(view) {
         const { places, statuses, stats, target, distances, addMode, follow } = view;
 
-        if (document.activeElement !== el.routeName) el.routeName.value = view.routeName;
+        // Маршрут не выбран — законное состояние: приложение ничего не
+        // активирует само, поэтому показываем приглашение вместо прогресса.
+        const hasRoute = view.routeName !== null;
+        el.routePickerName.textContent = hasRoute ? (view.routeName || 'Без названия') : 'Не выбран';
+        el.pickPrompt.hidden = hasRoute;
+        el.routeActive.hidden = !hasRoute;
+
+        el.fabAdd.setAttribute('aria-pressed', String(addMode));
+        el.fabAdd.disabled = !hasRoute;
+        el.addHint.hidden = !addMode;
+        el.fabLocate.setAttribute('aria-pressed', String(follow));
+
+        if (!hasRoute) {
+            el.peekPct.textContent = '—';
+            el.peekNext.textContent = 'Маршрут не выбран';
+            return;
+        }
 
         el.progressFill.style.width = `${stats.percent}%`;
         el.progressBar.setAttribute('aria-valuenow', String(stats.percent));
@@ -353,10 +372,6 @@ export function createUI(handlers) {
 
         renderList(places, statuses);
         updateDistances(places, distances);
-
-        el.fabAdd.setAttribute('aria-pressed', String(addMode));
-        el.addHint.hidden = !addMode;
-        el.fabLocate.setAttribute('aria-pressed', String(follow));
     }
 
     /* ============================== Состояние GPS ============================== */
@@ -430,6 +445,12 @@ export function createUI(handlers) {
     function renderRoutes(routes, activeId, statsOf) {
         el.routeList.replaceChildren();
 
+        const searching = el.routeSearch.value.trim().length > 0;
+        el.routeEmpty.hidden = routes.length > 0;
+        el.routeEmpty.textContent = searching
+            ? 'Ничего не нашлось. Поиск идёт по названию маршрута и по названиям точек внутри него.'
+            : 'Сохранённых маршрутов пока нет. Создайте первый.';
+
         for (const route of routes) {
             const node = el.tplRoute.content.firstElementChild.cloneNode(true);
             const stats = statsOf(route.id);
@@ -456,6 +477,11 @@ export function createUI(handlers) {
 
     function openRoutesSheet() {
         if (!el.sheet.open) el.sheet.showModal();
+    }
+
+    /** Сбрасывает поисковый запрос — вызывается при закрытии шита. */
+    function clearRouteSearch() {
+        el.routeSearch.value = '';
     }
 
     function closeRoutesSheet() {
@@ -502,6 +528,7 @@ export function createUI(handlers) {
         renderRoutes,
         openRoutesSheet,
         closeRoutesSheet,
+        clearRouteSearch,
         toast,
         showBootError,
         showDesktopStub,
