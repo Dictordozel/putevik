@@ -6,8 +6,6 @@
  * рисоваться — приложение остаётся рабочим, а не превращается в белое пятно.
  */
 
-
-
 const TILE_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
 const TILE_ATTRIBUTION = '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
 
@@ -105,11 +103,22 @@ export function createMapView({ el, onMapClick, onCheckpointMoved, onTilesStateC
         });
     }
 
+    let routeSignature = '';
+
     /**
-     * Перерисовывает маршрут целиком. Для прототипа это дешевле и надёжнее,
-     * чем точечная синхронизация слоёв с состоянием.
+     * Перерисовывает маршрут целиком — для прототипа это надёжнее точечной
+     * синхронизации слоёв. Но только когда что-то действительно изменилось:
+     * renderRoute вызывается на каждом фиксе GPS, а пересоздание маркеров
+     * посреди перетаскивания точки этот жест обрывает.
      */
     function renderRoute(places, statuses) {
+        const signature = places
+            .map((p, i) => `${p.id}:${p.lat.toFixed(6)}:${p.lng.toFixed(6)}:${p.radius}:${p.name}:${p.note}:${statuses[i]}`)
+            .join('|');
+
+        if (signature === routeSignature) return;
+        routeSignature = signature;
+
         cpLayer.clearLayers();
 
         places.forEach((place, i) => {
