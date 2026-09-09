@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Путевик — Конструктор Маршрута</title>
+
+    <!-- Переместили подключение Leaflet в самый верх для гарантированной загрузки -->
+    <link rel="stylesheet" href="https://cloudflare.com" />
+    <script src="https://cloudflare.com"></script>
+
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: sans-serif;
+            background: #f0f2f5;
+        }
+
+        #map {
+            height: 60vh;
+            width: 100%;
+            background: #e5e3df;
+        }
+
+        #panel {
+            height: 40vh;
+            padding: 20px;
+            box-sizing: border-box;
+            background: white;
+            border-top: 2px solid #ddd;
+            overflow-y: auto;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 5px 10px;
+            border-radius: 15px;
+            font-weight: bold;
+            font-size: 0.9em;
+        }
+
+        .not-set {
+            background: #eee;
+            color: #666;
+        }
+
+        .not-passed {
+            background: #ffe3e3;
+            color: #dc3545;
+        }
+
+        .passed {
+            background: #d4edda;
+            color: #28a745;
+        }
+
+        .distance {
+            font-size: 1.3em;
+            margin: 10px 0;
+            font-weight: bold;
+            color: #333;
+        }
+
+        .instruction {
+            background: #e3f2fd;
+            color: #0d47a1;
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 10px;
+            font-size: 0.9em;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div id="map"></div>
+    <div id="panel">
+        <h2 style="margin-top: 0;">Путевик (Тест)</h2>
+        <div class="instruction" id="instruction">📍 Тапните на карту в том месте, куда хотите дойти, чтобы создать
+            чекпоинт!</div>
+        <div class="distance">Дистанция до цели: <span id="dist-val">-</span> м</div>
+        <div style="margin-bottom: 10px;">
+            Статус цели: <span id="checkpoint-status" class="status-badge not-set">Маршрут не задан</span>
+        </div>
+        <p><small>Ваш GPS: <span id="gps-val">ожидание геопозиции...</span></small></p>
+    </div>
+
+    <script>
+        // Код начнет работать только после полной загрузки страницы и библиотек Leaflet
+        window.onload = function () {
+
+            // Проверка, загрузилась ли библиотека Leaflet
+            if (typeof L === 'undefined') {
+                alert("Ошибка: Библиотека карт Leaflet не загрузилась. Проверьте интернет-соединение.");
+                return;
+            }
+
+            // 1. Инициализируем карту (дефолтные координаты)
+            const map = L.map('map').setView([55.75, 37.62], 13);
+
+            L.tileLayer('https://openstreetmap.org{z}/{x}/{y}.png', {
+                maxZoom: 19,
+                attribution: '&copy; OpenStreetMap'
+            }).addTo(map);
+
+            let userMarker = null;
+            let checkpointCircle = null;
+            let routeLine = null;
+
+            let userCoords = null;
+            let checkpointCoords = null;
+            let isCheckpointPassed = false;
+
+            // Формула гаверсинусов
+            function getDistance(lat1, lon1, lat2, lon2) {
+                const R = 6371e3;
+                const phi1 = lat1 * Math.PI / 180;
+                const phi2 = lat2 * Math.PI / 180;
+                const deltaPhi = (lat2 - lat1) * Math.PI / 180;
+                const deltaLambda = (lon2 - lon1) * Math.PI / 180;
+                const a = Math.sin(deltaPhi / 2) * Math.sin(deltaPhi / 2) +
+                    Math.cos(phi1) * Math.cos(phi2) * Math.sin(deltaLambda / 2) * Math.sin(deltaLambda / 2);
+                const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+                return R * c;
+            }
+
+            // Клик/тап по карте устанавливает финишную точку
+            map.on('click', function (e) {
+                checkpointCoords = [e.latlng.lat, e.latlng.lng];
+                isCheckpointPassed = false;
+
+                if (checkpointCircle) map.removeLayer(checkpointCircle);
+
+                checkpointCircle = L.circle(checkpointCoords, {
+                    color: '#dc3545',
+                    fillColor: '#dc3545',
+                    fillOpacity: 0.3,
+                    radius: 20
+                }).addTo(map);
+
+                document.getElementById('checkpoint-status').innerText = 'Не пройден';
+                document.getElementById('checkpoint-status').className = 'status-badge not-passed';
+                document.getElementById('instruction').innerText = "Маршрут построен! Идите к красной зоне.";
+
+                updateRoute();
+            });
+
+            // Функция обновления линии маршрута и дистанции
+            function updateRoute() {
+                if (!userCoords || !checkpointCoords) return;
+
+                if (routeLine) map.removeLayer(routeLine);
+                routeLine = L.polyline([userCoords, checkpointCoords], { color: '#007bff', weight: 4, dashArray: '5, 10' }).addTo(map);
+
+                const distance = getDistance(userCoords[0], userCoords[1], checkpointCoords[0], checkpointCoords[1]);
+                document.getElementById('dist-val').innerText = Math.round(distance);
+
+                if (distance <= 20 && !isCheckpointPassed) {
+                    isCheckpointPassed = true;
+                    const statusEl = document.getElementById('checkpoint-status');
+                    statusEl.innerText = 'Пройдено! 🎉';
+                    statusEl.className = 'status-badge passed';
+                    alert('Вы на месте! Маршрут завершен.');
+                }
+            }
+
+            // Запуск GPS
+            if ("geolocation" in navigator) {
+                navigator.geolocation.watchPosition(
+                    (position) => {
+                        userCoords = [position.coords.latitude, position.coords.longitude];
+                        document.getElementById('gps-val').innerText = `${userCoords[0].toFixed(5)}, ${userCoords[1].toFixed(5)}`;
+
+                        if (userMarker) {
+                            userMarker.setLatLng(userCoords);
+                        } else {
+                            userMarker = L.circleMarker(userCoords, {
+                                radius: 8, fillColor: "#007bff", color: "#fff", weight: 3, fillOpacity: 0.8
+                            }).addTo(map).bindPopup("Вы здесь").openPopup();
+
+                            map.setView(userCoords, 17);
+                        }
+
+                        updateRoute();
+                    },
+                    (error) => {
+                        console.error(error);
+                        document.getElementById('gps-val').innerText = "Ошибка GPS. Включите геопозицию на телефоне.";
+                    },
+                    { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
+                );
+            } else {
+                alert("Геолокация не поддерживается.");
+            }
+        };
+    </script>
+</body>
+
+</html>
