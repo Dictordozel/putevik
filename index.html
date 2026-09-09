@@ -128,6 +128,46 @@
                     <button class="btn btn--danger" id="btn-clear-route" type="button">Очистить маршрут</button>
                 </footer>
 
+                <details class="dev" id="steps-panel">
+                    <summary class="dev__summary">Шаг и рост</summary>
+
+                    <label class="field">
+                        <span class="field__label">Ваш рост, см</span>
+                        <input class="field__input" id="height-input" type="number" min="100" max="250" step="1"
+                            inputmode="numeric">
+                    </label>
+
+                    <dl class="dev__facts">
+                        <div>
+                            <dt>Длина шага</dt>
+                            <dd id="step-len">—</dd>
+                        </div>
+                        <div>
+                            <dt>Откуда</dt>
+                            <dd id="step-source">—</dd>
+                        </div>
+                    </dl>
+
+                    <p class="dev__note" id="calib-note">
+                        Оценка по росту приблизительная. Пройдите отрезок, посчитав свои шаги, —
+                        и приложение вычислит вашу настоящую длину шага.
+                    </p>
+
+                    <div class="calib__row">
+                        <button class="btn btn--small" id="btn-calib" type="button">Начать калибровку</button>
+                        <button class="btn btn--small" id="btn-calib-reset" type="button">Сбросить</button>
+                    </div>
+
+                    <div class="calib__finish" id="calib-finish" hidden>
+                        <label class="field field--narrow">
+                            <span class="field__label">Сколько шагов</span>
+                            <input class="field__input" id="calib-steps" type="number" min="1" step="1"
+                                inputmode="numeric">
+                        </label>
+                        <button class="btn btn--small btn--primary" id="btn-calib-save" type="button">Сохранить</button>
+                    </div>
+                </details>
+
                 <details class="dev" id="dev-panel">
                     <summary class="dev__summary">Состояние GPS</summary>
 
@@ -236,6 +276,11 @@
                         <span class="field__label">Радиус, м</span>
                         <input class="field__input" data-edit="radius" type="number" min="5" max="500" step="5">
                     </label>
+                </div>
+
+                <div class="cp__editor-actions">
+                    <button class="btn btn--small" data-act="complete" type="button">Отметить пройденной</button>
+                    <button class="btn btn--small" data-act="skip" type="button">Пропустить</button>
                 </div>
 
                 <div class="cp__editor-actions">

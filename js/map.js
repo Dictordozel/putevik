@@ -15,10 +15,15 @@ const TILE_ERROR_LIMIT = 6;       // столько ошибок подряд �
 const TILE_ERROR_WINDOW_MS = 8000;
 
 const COLORS = {
-    locked: '#94a3b8',
+    route: '#64748b',      // сам «рисунок» маршрута — виден всегда
+    pending: '#94a3b8',
+    skipped: '#94a3b8',
     next: '#1b6ef3',
     completed: '#16a34a',
 };
+
+/** Пройденная и пропущенная точки одинаково «решены»: участок за ними закрыт. */
+const isResolved = (status) => status === 'completed' || status === 'skipped';
 
 
 export function createMapView({ el, onMapClick, onCheckpointMoved, onTilesStateChange, onFollowChange }) {
@@ -44,16 +49,18 @@ export function createMapView({ el, onMapClick, onCheckpointMoved, onTilesStateC
 
     /* ------------------------------ слои ------------------------------ */
 
-    const legLine = L.polyline([], {
-        color: COLORS.next, weight: 3, opacity: .9, dashArray: '2 8', lineCap: 'round',
-    }).addTo(map);
-
-    const remainingLine = L.polyline([], {
-        color: COLORS.locked, weight: 4, opacity: .85, dashArray: '9 9',
+    // Порядок добавления = порядок отрисовки. Сначала весь маршрут целиком,
+    // поверх него подсветка пройденного, сверху — пунктир до следующей цели.
+    const routeLine = L.polyline([], {
+        color: COLORS.route, weight: 5, opacity: .95, lineCap: 'round', lineJoin: 'round',
     }).addTo(map);
 
     const doneLine = L.polyline([], {
-        color: COLORS.completed, weight: 5, opacity: .9,
+        color: COLORS.completed, weight: 6, opacity: .95, lineCap: 'round', lineJoin: 'round',
+    }).addTo(map);
+
+    const legLine = L.polyline([], {
+        color: COLORS.next, weight: 3, opacity: .9, dashArray: '2 8', lineCap: 'round',
     }).addTo(map);
 
     const cpLayer = L.layerGroup().addTo(map);
@@ -111,7 +118,7 @@ export function createMapView({ el, onMapClick, onCheckpointMoved, onTilesStateC
     function markerIcon(index, status) {
         // На карте важен порядок прохождения, поэтому в маркере номер,
         // а тип места показывает список в панели.
-        const glyph = status === 'completed' ? '✓' : index + 1;
+        const glyph = status === 'completed' ? '✓' : (status === 'skipped' ? '×' : index + 1);
         return L.divIcon({
             className: '',   // Leaflet иначе подмешивает свои отступы
             html: `<div class="cp-marker cp-marker--${status}"><span>${glyph}</span></div>`,
@@ -140,13 +147,13 @@ export function createMapView({ el, onMapClick, onCheckpointMoved, onTilesStateC
         cpLayer.clearLayers();
 
         places.forEach((place, i) => {
-            const status = statuses[i] ?? 'locked';
+            const status = statuses[i] ?? 'pending';
             const latlng = [place.lat, place.lng];
 
             L.circle(latlng, {
                 radius: place.radius,
-                color: COLORS[status],
-                fillColor: COLORS[status],
+                color: COLORS[status] ?? COLORS.pending,
+                fillColor: COLORS[status] ?? COLORS.pending,
                 fillOpacity: status === 'completed' ? .18 : .12,
                 weight: 1.5,
                 interactive: false,   // круг не должен перехватывать тап по карте
@@ -172,19 +179,19 @@ export function createMapView({ el, onMapClick, onCheckpointMoved, onTilesStateC
             });
         });
 
-        // Линию делим на пройденную и оставшуюся часть: участок считается
-        // пройденным, только если пройдены оба его конца.
+        // Маршрут рисуется целиком и не меняется по мере прохождения — это его
+        // «рисунок». Прогресс показывается отдельной линией поверх, поэтому
+        // исчезать нечему: участок либо подсвечен, либо просто не подсвечен.
+        const latlngs = places.map((p) => [p.lat, p.lng]);
+        routeLine.setLatLngs(latlngs);
+
         const doneSegments = [];
-        const restSegments = [];
-
         for (let i = 1; i < places.length; i++) {
-            const pair = [[places[i - 1].lat, places[i - 1].lng], [places[i].lat, places[i].lng]];
-            const bothDone = statuses[i - 1] === 'completed' && statuses[i] === 'completed';
-            (bothDone ? doneSegments : restSegments).push(pair);
+            if (isResolved(statuses[i - 1]) && isResolved(statuses[i])) {
+                doneSegments.push([latlngs[i - 1], latlngs[i]]);
+            }
         }
-
         doneLine.setLatLngs(doneSegments);
-        remainingLine.setLatLngs(restSegments);
     }
 
     /** Пунктир от пользователя к следующей цели. */

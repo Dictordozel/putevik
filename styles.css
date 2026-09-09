@@ -569,6 +569,16 @@ body {
     border-color: color-mix(in srgb, var(--ok) 40%, var(--line));
 }
 
+/* Пропущенная точка не ошибка и не достижение — просто выведена из расчёта */
+.cp--skipped {
+    opacity: .65;
+}
+
+.cp--skipped .cp__name {
+    text-decoration: line-through;
+    text-decoration-color: var(--text-dim);
+}
+
 .cp__row {
     display: grid;
     grid-template-columns: auto 1fr auto;
@@ -771,11 +781,6 @@ body {
     white-space: nowrap;
 }
 
-.badge--locked {
-    background: var(--surface-2);
-    color: var(--text-dim);
-}
-
 .badge--next {
     background: color-mix(in srgb, var(--accent) 16%, transparent);
     color: var(--accent);
@@ -784,6 +789,34 @@ body {
 .badge--completed {
     background: color-mix(in srgb, var(--ok) 20%, transparent);
     color: var(--ok);
+}
+
+.badge--pending,
+.badge--skipped {
+    background: var(--surface-2);
+    color: var(--text-dim);
+}
+
+/* ============================== Калибровка шага ============================== */
+
+.dev__note {
+    margin: 10px 0;
+    color: var(--text-dim);
+    font-size: 12.5px;
+}
+
+.calib__row,
+.calib__finish {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: flex-end;
+}
+
+.calib__finish {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px dashed var(--line);
 }
 
 /* ============================== Отладка ============================== */

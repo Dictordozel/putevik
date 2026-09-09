@@ -5,11 +5,11 @@
  * по id. Прогресс хранится отдельно по каждому маршруту, поэтому одно и то же
  * место, попавшее в два маршрута, не «проходится» в обоих сразу.
  *
- * Статус точки (locked / next / completed) нигде не хранится — он вычисляется
+ * Статус точки (pending / next / completed / skipped) нигде не хранится — он вычисляется
  * из progress[routeId].completedIds и позиции точки в последовательности.
  */
 
-import { pathLength, segmentLengths } from './geodesy.js';
+import { pathLength, segmentLengths, stepFromHeight, DEFAULT_HEIGHT_CM } from './geodesy.js';
 
 const KEY = 'putevik.v1';
 const VERSION = 1;
@@ -39,7 +39,12 @@ function defaultState() {
         routes: [route],
         activeRouteId: route.id,
         progress: {},
-        settings: { autoFollow: true, defaultRadius: 20 },
+        settings: {
+            autoFollow: true,
+            defaultRadius: 20,
+            heightCm: DEFAULT_HEIGHT_CM,
+            stepMeters: null,   // задаётся калибровкой; null — считаем по росту
+        },
     };
 }
 
@@ -176,7 +181,19 @@ export function activePlaces() {
 }
 
 function progressFor(routeId) {
-    return state.progress[routeId] || { completedIds: [], startedAt: null, lastAt: null };
+    const p = state.progress[routeId];
+    return {
+        completedIds: p?.completedIds ?? [],
+        skippedIds: p?.skippedIds ?? [],
+        startedAt: p?.startedAt ?? null,
+        lastAt: p?.lastAt ?? null,
+    };
+}
+
+/** Точка «решена», если пройдена или пропущена: цель дальше её не ждёт. */
+function resolvedIds(routeId) {
+    const p = progressFor(routeId);
+    return new Set([...p.completedIds, ...p.skippedIds]);
 }
 
 export function activeProgress() {
@@ -185,29 +202,54 @@ export function activeProgress() {
 
 /**
  * Статусы точек активного маршрута.
- * Порядок обязателен: 'next' получает первая непройденная точка, остальные — 'locked'.
+ * Порядок здесь только подсказка: 'next' получает первая нерешённая точка.
  */
 export function statuses() {
     const places = activePlaces();
-    const done = new Set(activeProgress().completedIds);
+    const progress = activeProgress();
+    const done = new Set(progress.completedIds);
+    const skipped = new Set(progress.skippedIds);
     let nextAssigned = false;
 
     return places.map((place) => {
         if (done.has(place.id)) return 'completed';
+        if (skipped.has(place.id)) return 'skipped';
+        // Порядок остаётся подсказкой: целью становится первая нерешённая точка,
+        // но засчитать можно любую — блокировки больше нет.
         if (!nextAssigned) {
             nextAssigned = true;
             return 'next';
         }
-        return 'locked';
+        return 'pending';
     });
 }
 
 /** Первая непройденная точка активного маршрута либо null, если маршрут завершён. */
 export function nextTarget() {
     const places = activePlaces();
-    const list = statuses();
-    const i = list.indexOf('next');
+    const i = statuses().indexOf('next');
     return i === -1 ? null : places[i];
+}
+
+/** Точки, которые ещё можно засчитать: ни пройденные, ни пропущенные. */
+export function unresolvedPlaces() {
+    const resolved = resolvedIds(state.activeRouteId);
+    return activePlaces().filter((place) => !resolved.has(place.id));
+}
+
+/**
+ * Точка возврата на маршрут: последняя пройденная, а если таких нет — старт.
+ * От неё строится подводящий путь, когда пользователь оказался в стороне.
+ */
+export function rejoinPoint() {
+    const places = activePlaces();
+    if (places.length === 0) return null;
+
+    const completed = activeProgress().completedIds;
+    for (let i = places.length - 1; i >= 0; i--) {
+        if (completed.includes(places[i].id)) return places[i];
+    }
+    return places[0];
 }
 
 /**
@@ -219,20 +261,29 @@ export function routeStats(routeId = state.activeRouteId) {
     if (!route) return { total: 0, done: 0, left: 0, percent: 0, count: 0, completedCount: 0 };
 
     const places = route.placeIds.map((id) => state.places[id]).filter(Boolean);
-    const doneSet = new Set(progressFor(routeId).completedIds);
+    const progress = progressFor(routeId);
+    const doneSet = new Set(progress.completedIds);
+    const skippedSet = new Set(progress.skippedIds);
+    // Участок засчитывается, если решены оба его конца: пропуск точки
+    // не должен навсегда оставлять маршрут незавершённым.
+    const resolved = new Set([...doneSet, ...skippedSet]);
+
     const total = pathLength(places);
     const segments = segmentLengths(places);
 
     let done = 0;
     for (let i = 1; i < places.length; i++) {
-        if (doneSet.has(places[i - 1].id) && doneSet.has(places[i].id)) done += segments[i - 1];
+        if (resolved.has(places[i - 1].id) && resolved.has(places[i].id)) done += segments[i - 1];
     }
 
     const completedCount = places.filter((p) => doneSet.has(p.id)).length;
+    const skippedCount = places.filter((p) => skippedSet.has(p.id)).length;
+    const resolvedCount = completedCount + skippedCount;
+
     // Одна точка длины не имеет — тогда процент считаем по количеству.
     const percent = total > 0
         ? Math.min(100, Math.round((done / total) * 100))
-        : (places.length ? Math.round((completedCount / places.length) * 100) : 0);
+        : (places.length ? Math.round((resolvedCount / places.length) * 100) : 0);
 
     return {
         total,
@@ -241,7 +292,8 @@ export function routeStats(routeId = state.activeRouteId) {
         percent,
         count: places.length,
         completedCount,
-        finished: places.length > 0 && completedCount === places.length,
+        skippedCount,
+        finished: places.length > 0 && resolvedCount === places.length,
     };
 }
 
@@ -295,7 +347,10 @@ export function removeCheckpoint(id) {
     route.updatedAt = now();
 
     const progress = state.progress[route.id];
-    if (progress) progress.completedIds = progress.completedIds.filter((pid) => pid !== id);
+    if (progress) {
+        progress.completedIds = progress.completedIds.filter((pid) => pid !== id);
+        progress.skippedIds = (progress.skippedIds ?? []).filter((pid) => pid !== id);
+    }
 
     gcPlaces();
     commit();
@@ -316,18 +371,42 @@ export function moveCheckpoint(id, direction) {
 /* ============================== Действия: прогресс ============================== */
 
 /** Отмечает точку пройденной. Возвращает true, если статус изменился. */
-export function completeCheckpoint(placeId) {
-    const routeId = state.activeRouteId;
-    const progress = state.progress[routeId] ||
-        (state.progress[routeId] = { completedIds: [], startedAt: now(), lastAt: null });
+function ensureProgress(routeId) {
+    return state.progress[routeId] ||
+        (state.progress[routeId] = { completedIds: [], skippedIds: [], startedAt: now(), lastAt: null });
+}
 
-    if (progress.completedIds.includes(placeId)) return false;
+/**
+ * Состояние точки: 'completed' — пройдена, 'skipped' — пропущена,
+ * 'pending' — снова не пройдена. Возвращает true, если что-то изменилось.
+ *
+ * Порядок не проверяется: засчитать или отметить можно любую точку маршрута.
+ */
+export function setCheckpointState(placeId, next) {
+    const progress = ensureProgress(state.activeRouteId);
+    if (!progress.skippedIds) progress.skippedIds = [];
 
-    progress.completedIds.push(placeId);
+    const current = progress.completedIds.includes(placeId)
+        ? 'completed'
+        : (progress.skippedIds.includes(placeId) ? 'skipped' : 'pending');
+
+    if (current === next) return false;
+
+    progress.completedIds = progress.completedIds.filter((id) => id !== placeId);
+    progress.skippedIds = progress.skippedIds.filter((id) => id !== placeId);
+
+    if (next === 'completed') progress.completedIds.push(placeId);
+    if (next === 'skipped') progress.skippedIds.push(placeId);
+
     progress.lastAt = now();
     if (!progress.startedAt) progress.startedAt = now();
     commit();
     return true;
+}
+
+/** Засчитать точку пройденной. */
+export function completeCheckpoint(placeId) {
+    return setCheckpointState(placeId, 'completed');
 }
 
 export function resetProgress(routeId = state.activeRouteId) {
@@ -415,6 +494,30 @@ function gcPlaces() {
 }
 
 /* ============================== Настройки ============================== */
+
+/**
+ * Длина шага в метрах: результат калибровки, если она была,
+ * иначе оценка по росту.
+ */
+export function stepLength() {
+    const { stepMeters, heightCm } = state.settings;
+    return stepMeters > 0 ? stepMeters : stepFromHeight(heightCm);
+}
+
+/** Калибровка: реальная длина шага из пройденного расстояния и числа шагов. */
+export function calibrateStep(meters, steps) {
+    const value = Number(meters) / Number(steps);
+    if (!Number.isFinite(value) || value < 0.3 || value > 1.5) return false;
+    state.settings.stepMeters = value;
+    commit();
+    return true;
+}
+
+/** Сброс калибровки — возвращаемся к оценке по росту. */
+export function resetStepCalibration() {
+    state.settings.stepMeters = null;
+    commit();
+}
 
 export function setSetting(key, value) {
     state.settings[key] = value;

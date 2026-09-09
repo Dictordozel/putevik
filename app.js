@@ -60,6 +60,10 @@ let streakTargetId = null;
 let wakeLock = null;
 let updateReady = false;
 
+/** Калибровка длины шага: копим пройденное по GPS, потом делим на число шагов. */
+const IDLE_CALIBRATION = { active: false, awaiting: false, meters: 0, lastPoint: null };
+let calibration = { ...IDLE_CALIBRATION };
+
 /* ============================== Карта ============================== */
 
 const mapView = createMapView({
@@ -96,6 +100,12 @@ mapView.setFollow(follow);
 
 const tracker = createTracker({
     onUpdate(fix) {
+        if (calibration.active) {
+            if (calibration.lastPoint) calibration.meters += distance(calibration.lastPoint, fix);
+            calibration.lastPoint = { lat: fix.lat, lng: fix.lng };
+            renderCalibration();
+        }
+
         lastFix = fix;
         mapView.setUser(fix);
         evaluateArrival(fix);
@@ -114,7 +124,11 @@ const tracker = createTracker({
 /* ============================== Логика прохождения ============================== */
 
 /**
- * Засчитывает следующую точку, если пользователь внутри её радиуса.
+ * Засчитывает точку, в радиус которой попал пользователь.
+ *
+ * Порядок не важен: проверяются все нерешённые точки маршрута, а не только
+ * следующая по счёту. Если внутри радиуса оказалось несколько — берётся
+ * ближайшая.
  *
  * Две защиты от ложных срабатываний:
  *  1. фикс с большой погрешностью игнорируется — иначе Wi-Fi-позиция с ±500 м
@@ -123,36 +137,42 @@ const tracker = createTracker({
  *     туда-обратно на границе зоны.
  */
 function evaluateArrival(fix) {
-    const target = store.nextTarget();
+    let hit = null;
+    let hitDistance = Infinity;
 
-    if (!target) {
+    for (const place of store.unresolvedPlaces()) {
+        const d = distance(fix, place);
+        if (d <= place.radius && d < hitDistance) {
+            hit = place;
+            hitDistance = d;
+        }
+    }
+
+    if (!hit) {
         arrivalStreak = 0;
         streakTargetId = null;
         lowAccuracy = false;
         return;
     }
 
-    if (fix.accuracy > accuracyLimitFor(target.radius)) {
+    if (fix.accuracy > accuracyLimitFor(hit.radius)) {
         lowAccuracy = true;
         arrivalStreak = 0;
         return;
     }
     lowAccuracy = false;
 
-    if (target.id !== streakTargetId) {
-        streakTargetId = target.id;
+    if (hit.id !== streakTargetId) {
+        streakTargetId = hit.id;
         arrivalStreak = 0;
-    }
-
-    if (distance(fix, target) > target.radius) {
-        arrivalStreak = 0;
-        return;
     }
 
     arrivalStreak++;
     if (arrivalStreak < ARRIVAL_STREAK) return;
 
     arrivalStreak = 0;
+    streakTargetId = null;
+    const target = hit;
     if (!store.completeCheckpoint(target.id)) return;
 
     navigator.vibrate?.([40, 60, 120]);
@@ -191,7 +211,25 @@ function renderAll() {
         follow,
     });
 
+    renderSteps();
     if (document.getElementById('routes-sheet').open) renderRoutesSheet();
+}
+
+function renderSteps() {
+    const { heightCm, stepMeters } = store.getState().settings;
+    ui.setSteps({
+        heightCm,
+        stepMeters: store.stepLength(),
+        calibrated: stepMeters > 0,
+    });
+}
+
+function renderCalibration() {
+    ui.setCalibration({
+        active: calibration.active,
+        awaitingSteps: calibration.awaiting,
+        meters: calibration.meters,
+    });
 }
 
 function renderRoutesSheet() {
@@ -278,6 +316,79 @@ function buildHandlers() {
 
         onEditPlace(id, patch) {
             store.updatePlace(id, patch);
+        },
+
+        onSetPlaceState(id, next) {
+            if (!store.setCheckpointState(id, next)) return;
+            ui.invalidateList();
+            ui.toast({
+                completed: 'Точка отмечена пройденной',
+                skipped: 'Точка пропущена',
+                pending: 'Отметка снята',
+            }[next] ?? 'Готово');
+        },
+
+        onHeightChange(value) {
+            const cm = Math.round(Number(value));
+            if (!Number.isFinite(cm) || cm < 100 || cm > 250) {
+                ui.toast('Рост должен быть от 100 до 250 см', 'warn');
+                renderSteps();
+                return;
+            }
+            store.setSetting('heightCm', cm);
+            ui.toast('Расстояния пересчитаны под ваш рост');
+        },
+
+        onCalibStart() {
+            if (calibration.active) {
+                // Завершение: дальше нужно только число шагов.
+                if (calibration.meters < 20) {
+                    calibration = { ...IDLE_CALIBRATION };
+                    ui.toast('Слишком короткий отрезок — пройдите хотя бы 20 метров', 'warn');
+                } else {
+                    calibration = { ...calibration, active: false, awaiting: true, lastPoint: null };
+                }
+                renderCalibration();
+                return;
+            }
+
+            if (!lastFix) {
+                ui.toast('Нужен фикс GPS — подождите, пока индикатор позеленеет', 'warn');
+                return;
+            }
+
+            calibration = {
+                active: true,
+                awaiting: false,
+                meters: 0,
+                lastPoint: { lat: lastFix.lat, lng: lastFix.lng },
+            };
+            requestWakeLock();
+            renderCalibration();
+            ui.toast('Идите по прямой и считайте шаги');
+        },
+
+        onCalibSave(value) {
+            const steps = Math.round(Number(value));
+            if (!Number.isFinite(steps) || steps < 5) {
+                ui.toast('Введите число шагов — хотя бы пять', 'warn');
+                return;
+            }
+            if (!store.calibrateStep(calibration.meters, steps)) {
+                ui.toast('Не сходится: получается неправдоподобная длина шага', 'error');
+                return;
+            }
+            calibration = { ...IDLE_CALIBRATION };
+            renderCalibration();
+            renderSteps();
+            ui.toast('Длина шага уточнена по вашей ходьбе', 'ok');
+        },
+
+        onCalibReset() {
+            store.resetStepCalibration();
+            calibration = { ...IDLE_CALIBRATION };
+            renderCalibration();
+            ui.toast('Вернулись к оценке по росту');
         },
 
         onRemovePlace(id) {
@@ -446,6 +557,7 @@ function boot() {
     }
 
     renderAll();
+    renderCalibration();
     refreshNetworkChip();
 
     tracker.start();

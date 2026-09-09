@@ -7,14 +7,21 @@
  * редактор закрывался бы на каждом фиксе GPS.
  */
 
-import { KINDS } from './store.js';
-import { formatDistance, formatAge } from './geodesy.js';
+import { KINDS, stepLength } from './store.js';
+import { formatDistance, formatAge, formatSteps } from './geodesy.js';
 
 const STATUS_TEXT = {
-    locked: '🔒 Заблокировано',
+    pending: 'Не пройдена',
     next: '➜ Следующая цель',
     completed: '✓ Пройдено 🎉',
+    skipped: '⤳ Пропущена',
 };
+
+/**
+ * Расстояния наружу выходят в шагах: метры остаются внутри для расчётов.
+ * Исключение — радиус точки: он привязан к погрешности GPS, которая в метрах.
+ */
+const dist = (meters) => formatSteps(meters, stepLength());
 
 const GPS_TEXT = {
     idle: 'Ожидание GPS…',
@@ -73,6 +80,15 @@ export function createUI(handlers) {
         btnClearRoute: $('btn-clear-route'),
 
         devPanel: $('dev-panel'),
+        heightInput: $('height-input'),
+        stepLen: $('step-len'),
+        stepSource: $('step-source'),
+        calibNote: $('calib-note'),
+        btnCalib: $('btn-calib'),
+        btnCalibReset: $('btn-calib-reset'),
+        calibFinish: $('calib-finish'),
+        calibSteps: $('calib-steps'),
+        btnCalibSave: $('btn-calib-save'),
         devGps: $('dev-gps'),
         devCoords: $('dev-coords'),
         devAge: $('dev-age'),
@@ -179,6 +195,11 @@ export function createUI(handlers) {
 
     el.btnUpdate.addEventListener('click', () => handlers.onUpdateApp?.());
 
+    el.heightInput.addEventListener('change', () => handlers.onHeightChange?.(el.heightInput.value));
+    el.btnCalib.addEventListener('click', () => handlers.onCalibStart?.());
+    el.btnCalibReset.addEventListener('click', () => handlers.onCalibReset?.());
+    el.btnCalibSave.addEventListener('click', () => handlers.onCalibSave?.(el.calibSteps.value));
+
     /* ============================== Список точек ============================== */
 
     function signatureOf(places, statuses) {
@@ -228,6 +249,17 @@ export function createUI(handlers) {
         fields.kind.addEventListener('change', () => handlers.onEditPlace?.(place.id, { kind: fields.kind.value }));
         fields.radius.addEventListener('change', () => handlers.onEditPlace?.(place.id, { radius: fields.radius.value }));
 
+        const btnComplete = editor.querySelector('[data-act="complete"]');
+        const btnSkip = editor.querySelector('[data-act="skip"]');
+
+        btnComplete.textContent = status === 'completed' ? 'Снять отметку' : 'Отметить пройденной';
+        btnSkip.textContent = status === 'skipped' ? 'Вернуть в маршрут' : 'Пропустить';
+
+        btnComplete.addEventListener('click', () =>
+            handlers.onSetPlaceState?.(place.id, status === 'completed' ? 'pending' : 'completed'));
+        btnSkip.addEventListener('click', () =>
+            handlers.onSetPlaceState?.(place.id, status === 'skipped' ? 'pending' : 'skipped'));
+
         editor.querySelector('[data-act="up"]').addEventListener('click', () => handlers.onMovePlace?.(place.id, -1));
         editor.querySelector('[data-act="down"]').addEventListener('click', () => handlers.onMovePlace?.(place.id, 1));
         editor.querySelector('[data-act="center"]').addEventListener('click', () => handlers.onCenterPlace?.(place.id));
@@ -270,7 +302,7 @@ export function createUI(handlers) {
             const row = rows.get(place.id);
             if (!row) return;
             const meters = distances[i];
-            row.distEl.textContent = Number.isFinite(meters) ? formatDistance(meters) : '';
+            row.distEl.textContent = Number.isFinite(meters) ? dist(meters) : '';
         });
     }
 
@@ -284,9 +316,11 @@ export function createUI(handlers) {
         el.progressFill.style.width = `${stats.percent}%`;
         el.progressBar.setAttribute('aria-valuenow', String(stats.percent));
         el.statPct.textContent = `${stats.percent}%`;
-        el.statCount.textContent = `${stats.completedCount} из ${stats.count}`;
-        el.statTotal.textContent = stats.count > 1 ? formatDistance(stats.total) : '—';
-        el.statLeft.textContent = stats.count > 1 ? formatDistance(stats.left) : '—';
+        el.statCount.textContent = stats.skippedCount
+            ? `${stats.completedCount} из ${stats.count} · ${stats.skippedCount} проп.`
+            : `${stats.completedCount} из ${stats.count}`;
+        el.statTotal.textContent = stats.count > 1 ? dist(stats.total) : '—';
+        el.statLeft.textContent = stats.count > 1 ? dist(stats.left) : '—';
 
         el.peekPct.textContent = `${stats.percent}%`;
 
@@ -303,18 +337,18 @@ export function createUI(handlers) {
             el.targetBody.hidden = false;
             el.targetName.textContent = 'Маршрут пройден полностью';
             el.targetDist.textContent = '🎉';
-            el.targetNote.textContent = `${stats.count} из ${stats.count} точек · ${formatDistance(stats.total)}`;
+            el.targetNote.textContent = `${stats.count} точек · ${dist(stats.total)}`;
             el.peekNext.textContent = 'Маршрут пройден 🎉';
         } else {
             el.targetEmpty.hidden = true;
             el.targetBody.hidden = false;
             const name = target?.place?.name || 'Следующая точка';
-            const dist = Number.isFinite(target?.distance) ? formatDistance(target.distance) : 'ждём GPS';
+            const shown = Number.isFinite(target?.distance) ? dist(target.distance) : 'ждём GPS';
             el.targetName.textContent = name;
-            el.targetDist.textContent = dist;
+            el.targetDist.textContent = shown;
             el.targetNote.textContent = target?.place?.note ||
                 `${KINDS[target?.place?.kind]?.label ?? ''} · радиус ${target?.place?.radius ?? '—'} м`;
-            el.peekNext.textContent = `${name} — ${dist}`;
+            el.peekNext.textContent = `${name} — ${shown}`;
         }
 
         renderList(places, statuses);
@@ -350,6 +384,32 @@ export function createUI(handlers) {
         }
     }
 
+    /** Раздел «Шаг и рост»: длина шага, её источник и поле роста. */
+    function setSteps({ heightCm, stepMeters, calibrated }) {
+        if (document.activeElement !== el.heightInput) el.heightInput.value = heightCm;
+        el.stepLen.textContent = `${stepMeters.toFixed(2).replace('.', ',')} м`;
+        el.stepSource.textContent = calibrated ? 'калибровка' : 'оценка по росту';
+        el.btnCalibReset.hidden = !calibrated;
+    }
+
+    /**
+     * Состояние калибровки. Пока идёт — показываем накопленное расстояние,
+     * по завершении просим число шагов.
+     */
+    function setCalibration({ active, meters, awaitingSteps }) {
+        el.btnCalib.textContent = active ? 'Завершить и ввести шаги' : 'Начать калибровку';
+        el.calibFinish.hidden = !awaitingSteps;
+
+        if (active) {
+            el.calibNote.textContent = `Идёт калибровка: пройдено ${formatDistance(meters)}. Считайте шаги.`;
+        } else if (awaitingSteps) {
+            el.calibNote.textContent = `Пройдено ${formatDistance(meters)}. Сколько шагов вы сделали?`;
+        } else {
+            el.calibNote.textContent = 'Оценка по росту приблизительная. Пройдите отрезок, посчитав свои шаги, — и приложение вычислит вашу настоящую длину шага.';
+            el.calibSteps.value = '';
+        }
+    }
+
     function setFixAge(ms) {
         el.devAge.textContent = Number.isFinite(ms) ? `${formatAge(ms)} назад` : '—';
     }
@@ -378,7 +438,7 @@ export function createUI(handlers) {
             node.classList.toggle('route-item--active', route.id === activeId);
             node.querySelector('.route-item__name').textContent = route.name || 'Без названия';
             node.querySelector('.route-item__meta').textContent =
-                `${stats.count} точек · ${formatDistance(stats.total)} · пройдено ${stats.percent}%` +
+                `${stats.count} точек · ${dist(stats.total)} · пройдено ${stats.percent}%` +
                 (route.id === activeId ? ' · активный' : '');
 
             node.querySelector('.route-item__open')
@@ -436,6 +496,8 @@ export function createUI(handlers) {
         setGps,
         setFixAge,
         setOffline,
+        setSteps,
+        setCalibration,
         setUpdateAvailable,
         renderRoutes,
         openRoutesSheet,
