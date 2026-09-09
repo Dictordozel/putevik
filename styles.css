@@ -1121,10 +1121,42 @@ body {
     }
 }
 
+/* ------------------------------ маркер позиции ------------------------------ */
+
+.user-dot {
+    position: relative;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: 3px solid #fff;
+    background: var(--accent);
+    box-shadow: 0 0 0 1px rgba(8, 14, 24, .3), var(--shadow-sm);
+}
+
+/* Расходящееся кольцо: показывает, что позиция живая, а не нарисованная один раз */
+.user-dot__pulse {
+    position: absolute;
+    inset: -7px;
+    border-radius: 50%;
+    border: 2px solid var(--accent);
+    animation: user-pulse 1.9s ease-out infinite;
+}
+
+@keyframes user-pulse {
+    0% {
+        transform: scale(.55);
+        opacity: .85;
+    }
+
+    100% {
+        transform: scale(1.5);
+        opacity: 0;
+    }
+}
+
 /* В режиме симуляции маркер «я» тащится мышью — показываем это курсором */
 .user-draggable {
     cursor: grab;
-    touch-action: none;
 }
 
 .user-draggable:active {

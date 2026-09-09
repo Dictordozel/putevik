@@ -176,6 +176,44 @@ export function createMapView({ el, onMapClick, onCheckpointMoved, onTilesStateC
 
     /* ------------------------------ пользователь ------------------------------ */
 
+    let onUserDragged = null;
+    let userDragging = false;
+
+    /**
+     * Маркер позиции — L.marker с divIcon, а не circleMarker.
+     *
+     * divIcon это обычный DOM-элемент в markerPane: он рисуется без участия
+     * SVG-рендерера, поэтому не зависит от того, в какой слой попал. Прежний
+     * circleMarker с принудительным pane: 'markerPane' требовал, чтобы Leaflet
+     * создал отдельный SVG-рендерер в чужом слое, — лишняя зависимость там,
+     * где нужна надёжность. Плюс перетаскивание теперь даёт сам Leaflet,
+     * а вид (кольцо и пульсация) задаётся из CSS.
+     */
+    function createUserMarker(latlng) {
+        const marker = L.marker(latlng, {
+            icon: L.divIcon({
+                className: '',
+                html: '<div class="user-dot"><span class="user-dot__pulse"></span></div>',
+                iconSize: [22, 22],
+                iconAnchor: [11, 11],
+            }),
+            draggable: false,       // включается только в режиме симуляции
+            autoPan: false,
+            keyboard: false,
+            zIndexOffset: 1000,    // поверх маркеров контрольных точек
+            title: 'Ваша позиция',
+        }).addTo(map);
+
+        marker.on('dragstart', () => { userDragging = true; });
+        marker.on('dragend', () => { userDragging = false; });
+        marker.on('drag dragend', (event) => {
+            const { lat, lng } = event.target.getLatLng();
+            onUserDragged?.({ lat, lng });
+        });
+
+        return marker;
+    }
+
     function setUser(fix) {
         if (!fix) return;
         const latlng = [fix.lat, fix.lng];
@@ -190,96 +228,31 @@ export function createMapView({ el, onMapClick, onCheckpointMoved, onTilesStateC
                 interactive: false,
             }).addTo(map);
 
-            userMarker = L.circleMarker(latlng, {
-                radius: 8,
-                color: '#fff',
-                weight: 3,
-                fillColor: COLORS.next,
-                fillOpacity: 1,
-                pane: 'markerPane',
-            }).addTo(map);
-
-            userMarker.bindTooltip('Вы здесь', { direction: 'top', offset: [0, -10] });
+            userMarker = createUserMarker(latlng);
         } else {
-            userMarker.setLatLng(latlng);
+            // Во время перетаскивания позицию задаёт палец, а не входящий фикс,
+            // иначе маркер дёргается под курсором.
+            if (!userDragging) userMarker.setLatLng(latlng);
             accuracyCircle.setLatLng(latlng).setRadius(fix.accuracy);
         }
 
-        // В симуляции маркер можно тащить мышью — это и есть «перемещение» по карте.
         setUserDraggable(fix.simulated);
 
         if (!hasCenteredOnUser) {
             hasCenteredOnUser = true;
             map.setView(latlng, Math.max(map.getZoom(), 16));
-        } else if (follow) {
+        } else if (follow && !userDragging) {
             map.panTo(latlng, { animate: true, duration: .4 });
         }
     }
 
-    /* ------------------------------ перетаскивание в симуляции ------------------------------ */
-
-    let dragHandlers = null;
-
+    /** В симуляции маркер тащится мышью или пальцем — это и есть перемещение. */
     function setUserDraggable(on) {
-        if (!userMarker) return;
-        const element = userMarker.getElement();
-        if (!element) return;
-
-        element.classList.toggle('user-draggable', on);
-
-        if (on && !dragHandlers) {
-            dragHandlers = createUserDrag();
-        } else if (!on && dragHandlers) {
-            dragHandlers.destroy();
-            dragHandlers = null;
-        }
+        if (!userMarker?.dragging) return;
+        if (on) userMarker.dragging.enable();
+        else userMarker.dragging.disable();
+        userMarker.getElement()?.classList.toggle('user-draggable', on);
     }
-
-    /**
-     * L.circleMarker не умеет draggable, поэтому тащим руками:
-     * на время перетаскивания глушим панорамирование карты.
-     */
-    function createUserDrag() {
-        let dragging = false;
-        const element = userMarker.getElement();
-
-        function down(event) {
-            dragging = true;
-            map.dragging.disable();
-            element.setPointerCapture?.(event.pointerId);
-            event.preventDefault();
-            event.stopPropagation();
-        }
-
-        function move(event) {
-            if (!dragging) return;
-            const point = map.mouseEventToLatLng(event);
-            onUserDragged?.({ lat: point.lat, lng: point.lng });
-        }
-
-        function up() {
-            if (!dragging) return;
-            dragging = false;
-            map.dragging.enable();
-        }
-
-        element.addEventListener('pointerdown', down);
-        window.addEventListener('pointermove', move);
-        window.addEventListener('pointerup', up);
-        window.addEventListener('pointercancel', up);
-
-        return {
-            destroy() {
-                element.removeEventListener('pointerdown', down);
-                window.removeEventListener('pointermove', move);
-                window.removeEventListener('pointerup', up);
-                window.removeEventListener('pointercancel', up);
-                if (dragging) map.dragging.enable();
-            },
-        };
-    }
-
-    let onUserDragged = null;
 
     /* ------------------------------ публичный интерфейс ------------------------------ */
 
