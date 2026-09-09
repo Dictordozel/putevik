@@ -69,6 +69,7 @@ export function createUI(handlers) {
         targetNote: $('target-note'),
 
         cpList: $('cp-list'),
+        pathNote: $('path-note'),
 
         gpsChip: $('gps-chip'),
         gpsLabel: $('gps-label'),
@@ -425,6 +426,22 @@ export function createUI(handlers) {
         }
     }
 
+    /**
+     * Строка о том, как проложен маршрут. Молчит, когда всё хорошо:
+     * сообщать «идёт по улицам» незачем, это и так видно на карте.
+     */
+    function setPathState({ state, detail }) {
+        const text = {
+            straight: 'Линия по прямой: маршрут не проложен по улицам.',
+            pending: 'Прокладываем по улицам…',
+            failed: detail || 'Сервис маршрутов недоступен — линия по прямой.',
+        }[state];
+
+        el.pathNote.hidden = !text;
+        el.pathNote.textContent = text ?? '';
+        el.pathNote.classList.toggle('path-note--warn', state === 'failed');
+    }
+
     function setFixAge(ms) {
         el.devAge.textContent = Number.isFinite(ms) ? `${formatAge(ms)} назад` : '—';
     }
@@ -522,6 +539,7 @@ export function createUI(handlers) {
         setGps,
         setFixAge,
         setOffline,
+        setPathState,
         setSteps,
         setCalibration,
         setUpdateAvailable,

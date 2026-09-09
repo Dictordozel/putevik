@@ -444,6 +444,22 @@ body {
     font-variant-numeric: tabular-nums;
 }
 
+/* ============================== Как проложен маршрут ============================== */
+
+.path-note {
+    margin: 0;
+    padding: 8px 12px;
+    border-radius: var(--radius-sm);
+    background: var(--surface-2);
+    color: var(--text-dim);
+    font-size: 12.5px;
+}
+
+.path-note--warn {
+    background: var(--warn-soft);
+    color: var(--text);
+}
+
 /* ============================== Следующая цель ============================== */
 
 .target {

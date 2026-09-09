@@ -11,6 +11,8 @@ import { createMapView } from './js/map.js';
 import { createTracker } from './js/geo.js';
 import { createUI } from './js/ui.js';
 import { distance } from './js/geodesy.js';
+import { fetchWalkingPath, pathSignature } from './js/routing.js';
+import { ROUTE_DEBOUNCE_MS, LEAD_IN_MIN_INTERVAL_MS, LEAD_IN_MIN_SHIFT_M } from './js/config.js';
 
 /** Минимальная точность, при которой вообще можно засчитывать точку, м. */
 const accuracyLimitFor = (radius) => Math.max(30, radius);
@@ -60,6 +62,15 @@ let streakTargetId = null;
 let wakeLock = null;
 let updateReady = false;
 let routeQuery = '';   // текущий фильтр в списке маршрутов
+
+/* Прокладка маршрута по улицам */
+let routeTimer = null;
+let routeInFlight = null;      // подпись точек, для которой уже идёт запрос
+let routeFailedFor = null;     // подпись, на которой сервис отказал — не долбим его
+let pathState = { state: 'straight', detail: null };
+
+/* Подводящий путь до точки возврата */
+let leadIn = { geometry: null, at: 0, from: null, targetId: null };
 
 /** Калибровка длины шага: копим пройденное по GPS, потом делим на число шагов. */
 const IDLE_CALIBRATION = { active: false, awaiting: false, meters: 0, lastPoint: null };
@@ -118,6 +129,7 @@ const tracker = createTracker({
         mapView.setUser(fix);
         evaluateArrival(fix);
         renderAll();
+        ensureLeadIn();
         ui.setGps({ status: tracker.status, detail: null, fix, lowAccuracy });
     },
 
@@ -194,6 +206,111 @@ function evaluateArrival(fix) {
     }
 }
 
+/* ============================== Прокладка по улицам ============================== */
+
+function setPathState(state, detail = null) {
+    if (pathState.state === state && pathState.detail === detail) return;
+    pathState = { state, detail };
+    ui.setPathState(pathState);
+}
+
+/**
+ * Держит геометрию активного маршрута свежей.
+ *
+ * Запрос откладывается: перетаскивание точки пальцем меняет координаты
+ * десятки раз, и каждый такой шаг не должен уходить в сервис.
+ */
+function scheduleRouting() {
+    clearTimeout(routeTimer);
+    routeTimer = setTimeout(ensureRoutePath, ROUTE_DEBOUNCE_MS);
+}
+
+async function ensureRoutePath() {
+    const route = store.activeRoute();
+    const places = store.activePlaces();
+
+    if (!route || places.length < 2) {
+        setPathState('straight');
+        return;
+    }
+    if (store.activePath()) {
+        setPathState('road');
+        return;
+    }
+
+    const signature = pathSignature(places);
+    if (routeInFlight === signature || routeFailedFor === signature) return;
+
+    routeInFlight = signature;
+    setPathState('pending');
+
+    try {
+        const path = await fetchWalkingPath(places);
+        // За время запроса точки могли измениться — тогда ответ уже не про них.
+        if (pathSignature(store.activePlaces()) !== signature) return;
+
+        store.setRoutePath(route.id, path);
+        routeFailedFor = null;
+        setPathState('road');
+    } catch (err) {
+        routeFailedFor = signature;
+        setPathState('failed', err.kind === 'limit'
+            ? 'Дневной лимит сервиса маршрутов исчерпан — линия по прямой.'
+            : 'Сервис маршрутов недоступен — линия по прямой.');
+    } finally {
+        routeInFlight = null;
+    }
+}
+
+/**
+ * Подводящий путь: как вернуться на маршрут, если вы оказались в стороне.
+ *
+ * Ведёт к точке возврата — последней пройденной, а если таких нет, к старту.
+ * Пересчитывается редко: пользователь двигается постоянно, а лимит запросов
+ * общий с прокладкой самого маршрута.
+ */
+async function ensureLeadIn() {
+    const target = store.rejoinPoint();
+
+    if (!lastFix || !target) {
+        clearLeadIn();
+        return;
+    }
+
+    // Пришли — подсказка больше не нужна.
+    if (distance(lastFix, target) <= target.radius) {
+        clearLeadIn();
+        return;
+    }
+
+    const movedEnough = !leadIn.from || distance(leadIn.from, lastFix) > LEAD_IN_MIN_SHIFT_M;
+    const timeEnough = Date.now() - leadIn.at > LEAD_IN_MIN_INTERVAL_MS;
+    const sameTarget = leadIn.targetId === target.id;
+
+    // Ещё свежая — просто показываем сохранённую геометрию. Без этого линия,
+    // однажды скрытая при возвращении на маршрут, больше не появлялась бы.
+    if (leadIn.geometry && sameTarget && !(movedEnough && timeEnough)) {
+        mapView.setLeadIn(leadIn.geometry);
+        return;
+    }
+
+    leadIn = { ...leadIn, at: Date.now(), from: { lat: lastFix.lat, lng: lastFix.lng }, targetId: target.id };
+
+    try {
+        const path = await fetchWalkingPath([lastFix, target]);
+        leadIn.geometry = path.geometry;
+    } catch {
+        // Сервис недоступен — показываем прямую: направление всё равно верное.
+        leadIn.geometry = [[lastFix.lat, lastFix.lng], [target.lat, target.lng]];
+    }
+    mapView.setLeadIn(leadIn.geometry);
+}
+
+function clearLeadIn() {
+    leadIn = { geometry: null, at: 0, from: null, targetId: null };
+    mapView.setLeadIn(null);
+}
+
 /* ============================== Рендер ============================== */
 
 function renderAll() {
@@ -205,8 +322,15 @@ function renderAll() {
         ? places.map((place) => distance(lastFix, place))
         : places.map(() => NaN);
 
-    mapView.renderRoute(places, statuses);
-    mapView.setLeg(lastFix, target);
+    const path = store.activePath();
+    mapView.renderRoute(places, statuses, path);
+
+    // Пока пользователь не на маршруте, его ведёт подводящий путь;
+    // на маршруте — короткий пунктир до следующей цели.
+    const rejoin = store.rejoinPoint();
+    const offRoute = Boolean(lastFix && rejoin && distance(lastFix, rejoin) > rejoin.radius);
+    mapView.setLeg(offRoute ? null : lastFix, offRoute ? null : target);
+    if (!offRoute) mapView.setLeadIn(null);
 
     ui.render({
         routeName: store.activeRoute()?.name ?? null,
@@ -220,6 +344,7 @@ function renderAll() {
     });
 
     renderSteps();
+    if (!path && places.length > 1 && pathState.state === 'road') setPathState('straight');
     if (document.getElementById('routes-sheet').open) renderRoutesSheet();
 }
 
@@ -246,6 +371,9 @@ function renderRoutesSheet() {
 }
 
 store.subscribe(renderAll);
+
+// Точки изменились — дорогу надо перепроложить.
+store.subscribe(scheduleRouting);
 
 /* ============================== Режим добавления ============================== */
 
@@ -450,6 +578,9 @@ function buildHandlers() {
                 mapView.fitRoute(places);
                 ui.setDrawer('half');
             }
+            clearLeadIn();
+            routeFailedFor = null;   // у нового маршрута свои шансы на прокладку
+            ensureRoutePath();
             ui.toast(`Маршрут «${store.activeRoute().name}» открыт`);
         },
 
@@ -573,6 +704,7 @@ function boot() {
 
     // Ничего не активируем сами: маршрут выбирается явно, из списка.
     store.deselectRoute();
+    ui.setPathState(pathState);
 
     renderAll();
     renderCalibration();

@@ -10,6 +10,7 @@
  */
 
 import { pathLength, segmentLengths, stepFromHeight, DEFAULT_HEIGHT_CM } from './geodesy.js';
+import { isPathFresh } from './routing.js';
 
 const KEY = 'putevik.v1';
 const VERSION = 1;
@@ -272,8 +273,13 @@ export function routeStats(routeId = state.activeRouteId) {
     // не должен навсегда оставлять маршрут незавершённым.
     const resolved = new Set([...doneSet, ...skippedSet]);
 
-    const total = pathLength(places);
-    const segments = segmentLengths(places);
+    // Если дорога проложена и не устарела — длины берём по ней: цифры
+    // должны отражать реальный путь, а не прямые между точками.
+    const path = isPathFresh(route.path, places) ? route.path : null;
+    const byRoad = path && path.legs.length === Math.max(0, places.length - 1);
+
+    const total = byRoad ? path.total : pathLength(places);
+    const segments = byRoad ? path.legs : segmentLengths(places);
 
     let done = 0;
     for (let i = 1; i < places.length; i++) {
@@ -297,6 +303,7 @@ export function routeStats(routeId = state.activeRouteId) {
         count: places.length,
         completedCount,
         skippedCount,
+        byRoad: Boolean(byRoad),
         finished: places.length > 0 && resolvedCount === places.length,
     };
 }
@@ -441,7 +448,7 @@ export function clearActiveRoute() {
 /* ============================== Действия: маршруты ============================== */
 
 export function createRoute(name = 'Новый маршрут') {
-    const route = { id: uid('rt'), name, placeIds: [], createdAt: now(), updatedAt: now() };
+    const route = { id: uid('rt'), name, placeIds: [], path: null, createdAt: now(), updatedAt: now() };
     state.routes.push(route);
     state.activeRouteId = route.id;
     commit();
@@ -504,6 +511,8 @@ export function duplicateRoute(id) {
         id: uid('rt'),
         name: `${source.name} (копия)`,
         placeIds,
+        // Координаты у копии те же, поэтому проложенная дорога остаётся годной.
+        path: source.path ?? null,
         createdAt: now(),
         updatedAt: now(),
     };
@@ -560,6 +569,28 @@ export function resetStepCalibration() {
     commit();
 }
 
+/**
+ * Сохраняет проложенную по улицам геометрию вместе с маршрутом.
+ * Благодаря этому офлайн рисует дорогу, а не прямые.
+ */
+export function setRoutePath(routeId, path) {
+    const route = state.routes.find((r) => r.id === routeId);
+    if (!route) return;
+    route.path = path;
+    commit();
+}
+
+/**
+ * Геометрия активного маршрута, если она соответствует нынешним точкам.
+ * Точку подвинули — подпись разошлась, и сохранённая дорога больше не годится.
+ */
+export function activePath() {
+    const route = activeRoute();
+    if (!route) return null;
+    const places = activePlaces();
+    return isPathFresh(route.path, places) ? route.path : null;
+}
+
 export function setSetting(key, value) {
     state.settings[key] = value;
     commit();
@@ -614,6 +645,9 @@ export function importJSON(text) {
             id: uid('rt'),
             name: `${String(route.name ?? 'Маршрут').slice(0, 55)} (импорт)`,
             placeIds,
+            // Подпись геометрии считается по координатам, а они при импорте
+            // сохраняются — значит дорога остаётся действительной.
+            path: route.path ?? null,
             createdAt: Number.isFinite(route.createdAt) ? route.createdAt : now(),
             updatedAt: now(),
         };

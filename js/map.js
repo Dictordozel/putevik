@@ -16,6 +16,7 @@ const TILE_ERROR_WINDOW_MS = 8000;
 
 const COLORS = {
     route: '#64748b',      // сам «рисунок» маршрута — виден всегда
+    leadIn: '#7c3aed',     // подводящий путь: это подсказка, а не часть маршрута
     pending: '#94a3b8',
     skipped: '#94a3b8',
     next: '#1b6ef3',
@@ -61,6 +62,12 @@ export function createMapView({ el, onMapClick, onCheckpointMoved, onTilesStateC
 
     const legLine = L.polyline([], {
         color: COLORS.next, weight: 3, opacity: .9, dashArray: '2 8', lineCap: 'round',
+    }).addTo(map);
+
+    // Путь возвращения на маршрут: другой цвет и штрих, чтобы его нельзя было
+    // спутать с самим маршрутом.
+    const leadInLine = L.polyline([], {
+        color: COLORS.leadIn, weight: 4, opacity: .9, dashArray: '10 7', lineCap: 'round',
     }).addTo(map);
 
     const cpLayer = L.layerGroup().addTo(map);
@@ -136,10 +143,10 @@ export function createMapView({ el, onMapClick, onCheckpointMoved, onTilesStateC
      * renderRoute вызывается на каждом фиксе GPS, а пересоздание маркеров
      * посреди перетаскивания точки этот жест обрывает.
      */
-    function renderRoute(places, statuses) {
+    function renderRoute(places, statuses, path = null) {
         const signature = places
             .map((p, i) => `${p.id}:${p.lat.toFixed(6)}:${p.lng.toFixed(6)}:${p.radius}:${p.name}:${p.note}:${statuses[i]}`)
-            .join('|');
+            .join('|') + `#${path?.computedAt ?? 'straight'}`;
 
         if (signature === routeSignature) return;
         routeSignature = signature;
@@ -182,21 +189,53 @@ export function createMapView({ el, onMapClick, onCheckpointMoved, onTilesStateC
         // Маршрут рисуется целиком и не меняется по мере прохождения — это его
         // «рисунок». Прогресс показывается отдельной линией поверх, поэтому
         // исчезать нечему: участок либо подсвечен, либо просто не подсвечен.
-        const latlngs = places.map((p) => [p.lat, p.lng]);
-        routeLine.setLatLngs(latlngs);
+        const straight = places.map((p) => [p.lat, p.lng]);
+        const usable = path?.geometry?.length && path.wayPoints?.length === places.length;
 
-        const doneSegments = [];
-        for (let i = 1; i < places.length; i++) {
+        routeLine.setLatLngs(usable ? path.geometry : straight);
+        doneLine.setLatLngs(
+            usable ? doneAlongRoad(path, statuses) : doneStraight(straight, statuses)
+        );
+    }
+
+    /** Пройденные участки прямыми — когда дороги нет. */
+    function doneStraight(latlngs, statuses) {
+        const out = [];
+        for (let i = 1; i < latlngs.length; i++) {
             if (isResolved(statuses[i - 1]) && isResolved(statuses[i])) {
-                doneSegments.push([latlngs[i - 1], latlngs[i]]);
+                out.push([latlngs[i - 1], latlngs[i]]);
             }
         }
-        doneLine.setLatLngs(doneSegments);
+        return out;
+    }
+
+    /**
+     * Пройденные участки по дороге.
+     *
+     * way_points из ответа сервиса говорит, какими индексами геометрии
+     * представлена каждая исходная точка, — по ним и режем.
+     */
+    function doneAlongRoad(path, statuses) {
+        const out = [];
+        for (let i = 1; i < path.wayPoints.length; i++) {
+            if (!isResolved(statuses[i - 1]) || !isResolved(statuses[i])) continue;
+            const slice = path.geometry.slice(path.wayPoints[i - 1], path.wayPoints[i] + 1);
+            if (slice.length > 1) out.push(slice);
+        }
+        return out;
     }
 
     /** Пунктир от пользователя к следующей цели. */
     function setLeg(from, to) {
         legLine.setLatLngs(from && to ? [[from.lat, from.lng], [to.lat, to.lng]] : []);
+    }
+
+    /**
+     * Путь возвращения на маршрут. Принимает готовую геометрию от сервиса,
+     * а при её отсутствии — прямую до точки возврата.
+     */
+    function setLeadIn(geometry) {
+        leadInLine.setLatLngs(geometry ?? []);
     }
 
     /* ------------------------------ пользователь ------------------------------ */
@@ -259,6 +298,7 @@ export function createMapView({ el, onMapClick, onCheckpointMoved, onTilesStateC
 
         renderRoute,
         setLeg,
+        setLeadIn,
         setUser,
 
         setAddMode(on) {
