@@ -8,6 +8,7 @@
  */
 
 import { offset, bearing, distance } from './geodesy.js';
+import { HOME_CENTER } from './config.js';
 
 const GEO_OPTIONS = { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 };
 
@@ -17,9 +18,6 @@ const SIM_ACCURACY = 5;
 const WALK_SPEED_MPS = 1.4;    // ~5 км/ч
 const WALK_TICK_MS = 500;
 const ARRIVE_EPS_M = 3;
-
-/** Резервный центр карты, если позиции нет вообще: Москва. */
-export const FALLBACK_CENTER = { lat: 55.7522, lng: 37.6156 };
 
 export function createTracker({ onUpdate, onStatus }) {
     let mode = 'real';           // 'real' | 'sim'
@@ -108,7 +106,7 @@ export function createTracker({ onUpdate, onStatus }) {
 
     function startSim(seed) {
         stopReal();
-        simPos = seed || (lastFix ? { lat: lastFix.lat, lng: lastFix.lng } : { ...FALLBACK_CENTER });
+        simPos = seed || (lastFix ? { lat: lastFix.lat, lng: lastFix.lng } : { ...HOME_CENTER });
         setStatus('sim');
         pushSim();
     }

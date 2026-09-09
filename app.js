@@ -8,9 +8,10 @@
 
 import * as store from './js/store.js';
 import { createMapView } from './js/map.js';
-import { createTracker, FALLBACK_CENTER } from './js/geo.js';
+import { createTracker } from './js/geo.js';
 import { createUI } from './js/ui.js';
 import { distance } from './js/geodesy.js';
+import { HOME_CENTER } from './js/config.js';
 
 /** Минимальная точность, при которой вообще можно засчитывать точку, м. */
 const accuracyLimitFor = (radius) => Math.max(30, radius);
@@ -369,7 +370,7 @@ function buildHandlers() {
         onSimToggle(on) {
             const seed = lastFix
                 ? { lat: lastFix.lat, lng: lastFix.lng }
-                : (store.activePlaces()[0] ?? FALLBACK_CENTER);
+                : (store.activePlaces()[0] ?? HOME_CENTER);
 
             tracker.setMode(on ? 'sim' : 'real', { lat: seed.lat, lng: seed.lng });
             store.setSetting('simulate', on);
@@ -452,7 +453,7 @@ function boot() {
     // Режим симуляции восстанавливаем из настроек, иначе после перезагрузки
     // отладочный сеанс каждый раз начинался бы заново.
     if (store.getState().settings.simulate) {
-        const seed = places[0] ?? FALLBACK_CENTER;
+        const seed = places[0] ?? HOME_CENTER;
         tracker.setMode('sim', { lat: seed.lat, lng: seed.lng });
         ui.setSim(true, false);
     } else {

@@ -6,6 +6,8 @@
  * рисоваться — приложение остаётся рабочим, а не превращается в белое пятно.
  */
 
+import { HOME_CENTER, HOME_ZOOM } from './config.js';
+
 const TILE_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
 const TILE_ATTRIBUTION = '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
 
@@ -22,7 +24,7 @@ export function createMapView({ el, onMapClick, onCheckpointMoved, onTilesStateC
     const map = L.map(el, {
         zoomControl: false,
         attributionControl: true,
-    }).setView([55.7522, 37.6156], 12);
+    }).setView([HOME_CENTER.lat, HOME_CENTER.lng], HOME_ZOOM);
 
     // Кнопки зума нужны мышке; на тач-устройствах хватает щипка, а место дороже.
     if (window.matchMedia('(pointer: fine)').matches) {
