@@ -6,6 +6,8 @@
  * рисоваться — приложение остаётся рабочим, а не превращается в белое пятно.
  */
 
+import { HOME_LATLNG, HOME_ZOOM } from './config.js';
+
 const TILE_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
 const TILE_ATTRIBUTION = '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
 
@@ -18,11 +20,12 @@ const COLORS = {
     completed: '#16a34a',
 };
 
-export function createMapView({ el, onMapClick, onCheckpointMoved, onTilesStateChange }) {
+
+export function createMapView({ el, onMapClick, onCheckpointMoved, onTilesStateChange, onFollowChange }) {
     const map = L.map(el, {
         zoomControl: false,
         attributionControl: true,
-    }).setView([55.7522, 37.6156], 12);
+    }).setView(HOME_LATLNG, HOME_ZOOM);
 
     // Кнопки зума нужны мышке; на тач-устройствах хватает щипка, а место дороже.
     if (window.matchMedia('(pointer: fine)').matches) {
@@ -87,6 +90,21 @@ export function createMapView({ el, onMapClick, onCheckpointMoved, onTilesStateC
     /* ------------------------------ клик по карте ------------------------------ */
 
     map.on('click', (event) => onMapClick?.({ lat: event.latlng.lat, lng: event.latlng.lng }));
+
+    /**
+     * Ручное панорамирование выключает слежение за позицией.
+     *
+     * Без этого каждый следующий фикс GPS возвращал карту к пользователю:
+     * стоит увести её, чтобы поставить точку в стороне, и через секунду
+     * она перескакивает обратно. Событие dragstart возникает только от
+     * жеста пользователя — программный panTo его не вызывает, поэтому
+     * само слежение себя не выключает.
+     */
+    map.on('dragstart', () => {
+        if (!follow) return;
+        follow = false;
+        onFollowChange?.(false);
+    });
 
     /* ------------------------------ отрисовка маршрута ------------------------------ */
 
@@ -235,8 +253,6 @@ export function createMapView({ el, onMapClick, onCheckpointMoved, onTilesStateC
             if (!userDragging) userMarker.setLatLng(latlng);
             accuracyCircle.setLatLng(latlng).setRadius(fix.accuracy);
         }
-
-        setUserDraggable(fix.simulated);
 
         if (!hasCenteredOnUser) {
             hasCenteredOnUser = true;

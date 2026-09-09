@@ -24,6 +24,23 @@ const TICK_MS = 1000;
 
 const ui = createUI(buildHandlers());
 
+/**
+ * Большой экран с мышью — не наша площадка.
+ *
+ * Приёмника GPS у компьютера нет: браузер определяет позицию по сети,
+ * и она приходит за сотни километров от пользователя (через VPN — вообще
+ * из другой страны). Строить и проверять маршрут в таких условиях нельзя,
+ * поэтому здесь показываем только адрес, а карту не поднимаем вовсе —
+ * заодно не запрашиваем разрешение на геолокацию впустую.
+ *
+ * Проверяем и ширину, и тип указателя: телефон в альбомной ориентации
+ * бывает шире 900px, но указатель у него всегда грубый.
+ */
+if (window.matchMedia('(min-width: 900px) and (pointer: fine)').matches) {
+    ui.showDesktopStub();
+    throw new Error('Desktop is out of scope: open on a phone');
+}
+
 if (typeof L === 'undefined') {
     ui.showBootError(
         'Не загрузилась библиотека карт',
@@ -63,6 +80,13 @@ const mapView = createMapView({
 
     onTilesStateChange() {
         refreshNetworkChip();
+    },
+
+    // Карта сама отключила слежение, потому что её увели вручную.
+    onFollowChange(next) {
+        follow = next;
+        store.setSetting('autoFollow', next);
+        renderAll();   // кнопка ⌖ должна показать новое состояние
     },
 });
 

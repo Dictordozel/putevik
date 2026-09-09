@@ -18,8 +18,8 @@ const WALK_SPEED_MPS = 1.4;    // ~5 км/ч
 const WALK_TICK_MS = 500;
 const ARRIVE_EPS_M = 3;
 
-/** Резервный центр карты, если позиции нет вообще: Москва. */
-export const FALLBACK_CENTER = { lat: 55.7522, lng: 37.6156 };
+/** Резервная точка, если позиции нет вообще. */
+export { HOME_CENTER as FALLBACK_CENTER } from './config.js';
 
 export function createTracker({ onUpdate, onStatus }) {
     let mode = 'real';           // 'real' | 'sim'

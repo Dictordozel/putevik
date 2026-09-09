@@ -431,6 +431,12 @@ export function createUI(handlers) {
 
     /* ============================== Фатальная ошибка ============================== */
 
+    /** Большой экран: приложение не запускаем, показываем только адрес. */
+    function showDesktopStub() {
+        $('desktop-stub').hidden = false;
+        el.app.hidden = true;
+    }
+
     function showBootError(title, text) {
         $('boot-error-title').textContent = title;
         $('boot-error-text').textContent = text;
@@ -449,6 +455,7 @@ export function createUI(handlers) {
         closeRoutesSheet,
         toast,
         showBootError,
+        showDesktopStub,
         setDrawer,
         /** Сбрасывает кэш структуры списка: следующий render() перерисует его целиком. */
         invalidateList() {

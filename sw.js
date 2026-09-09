@@ -12,7 +12,7 @@
  *    хранилище растёт бесконечно.
  */
 
-const VERSION = 'v1';
+const VERSION = 'v2';
 const SHELL_CACHE = `putevik-shell-${VERSION}`;
 const TILE_CACHE = 'putevik-tiles-v1';
 
@@ -24,6 +24,7 @@ const SHELL = [
     './index.html',
     './styles.css',
     './app.js',
+    './js/config.js',
     './js/store.js',
     './js/geo.js',
     './js/map.js',
