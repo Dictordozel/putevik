@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Путевик">
+    <rect width="512" height="512" fill="#0f172a" />
+    <path d="M256 96c-51 0-92 41-92 92 0 62 74 138 88 152a5.5 5.5 0 0 0 8 0c14-14 88-90 88-152 0-51-41-92-92-92z"
+        fill="#4b8dff" />
+    <circle cx="256" cy="188" r="34" fill="#0f172a" />
+    <path d="M150 372h60a30 30 0 0 1 0 60h-60a30 30 0 0 1 0-60z" fill="#16a34a" />
+    <path d="M302 372h60a30 30 0 0 1 0 60h-60a30 30 0 0 1 0-60z" fill="#94a3b8" />
+</svg>
