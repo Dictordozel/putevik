@@ -197,10 +197,6 @@ body {
     background: var(--danger);
 }
 
-#gps-chip[data-status="sim"] .chip__dot {
-    background: var(--accent);
-}
-
 #gps-chip.low-accuracy {
     border-color: var(--warn);
 }
@@ -811,34 +807,6 @@ body {
     margin-bottom: 10px;
 }
 
-.switch {
-    display: flex;
-    align-items: center;
-    gap: 9px;
-    cursor: pointer;
-    font-weight: 600;
-}
-
-.switch input {
-    width: 18px;
-    height: 18px;
-    accent-color: var(--accent);
-}
-
-.dev__sim {
-    margin-top: 9px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    align-items: flex-start;
-}
-
-.dev__hint {
-    margin: 0;
-    color: var(--text-dim);
-    font-size: 12.5px;
-}
-
 .dev__facts {
     margin: 10px 0 0;
     display: grid;
@@ -1210,15 +1178,6 @@ body {
         transform: scale(1.5);
         opacity: 0;
     }
-}
-
-/* В режиме симуляции маркер «я» тащится мышью — показываем это курсором */
-.user-draggable {
-    cursor: grab;
-}
-
-.user-draggable:active {
-    cursor: grabbing;
 }
 
 .leaflet-container {

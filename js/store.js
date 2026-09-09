@@ -39,7 +39,7 @@ function defaultState() {
         routes: [route],
         activeRouteId: route.id,
         progress: {},
-        settings: { simulate: false, autoFollow: true, defaultRadius: 20 },
+        settings: { autoFollow: true, defaultRadius: 20 },
     };
 }
 

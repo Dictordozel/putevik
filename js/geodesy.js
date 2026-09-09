@@ -33,47 +33,6 @@ export function segmentLengths(points) {
     return out;
 }
 
-/**
- * Смещение точки на заданное расстояние по азимуту — нужно режиму симуляции,
- * чтобы «шаг стрелкой» был честными 10 метрами на любой широте.
- * @param {{lat:number,lng:number}} from
- * @param {number} meters
- * @param {number} bearingDeg 0 — север, 90 — восток
- */
-export function offset(from, meters, bearingDeg) {
-    const delta = meters / R;
-    const theta = bearingDeg * RAD;
-    const phi1 = from.lat * RAD;
-    const lambda1 = from.lng * RAD;
-
-    const sinPhi2 = Math.sin(phi1) * Math.cos(delta) +
-        Math.cos(phi1) * Math.sin(delta) * Math.cos(theta);
-    const phi2 = Math.asin(Math.min(1, Math.max(-1, sinPhi2)));
-
-    const lambda2 = lambda1 + Math.atan2(
-        Math.sin(theta) * Math.sin(delta) * Math.cos(phi1),
-        Math.cos(delta) - Math.sin(phi1) * sinPhi2
-    );
-
-    return {
-        lat: phi2 / RAD,
-        lng: ((lambda2 / RAD + 540) % 360) - 180, // нормализация в [-180, 180)
-    };
-}
-
-/** Азимут из точки a в точку b, градусы. */
-export function bearing(a, b) {
-    const phi1 = a.lat * RAD;
-    const phi2 = b.lat * RAD;
-    const dLambda = (b.lng - a.lng) * RAD;
-
-    const y = Math.sin(dLambda) * Math.cos(phi2);
-    const x = Math.cos(phi1) * Math.sin(phi2) -
-        Math.sin(phi1) * Math.cos(phi2) * Math.cos(dLambda);
-
-    return (Math.atan2(y, x) / RAD + 360) % 360;
-}
-
 /** «120 м», «1,4 км» — человекочитаемое расстояние. */
 export function formatDistance(meters) {
     if (!Number.isFinite(meters)) return '—';

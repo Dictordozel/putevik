@@ -8,7 +8,7 @@
 
 import * as store from './js/store.js';
 import { createMapView } from './js/map.js';
-import { createTracker, FALLBACK_CENTER } from './js/geo.js';
+import { createTracker } from './js/geo.js';
 import { createUI } from './js/ui.js';
 import { distance } from './js/geodesy.js';
 
@@ -91,7 +91,6 @@ const mapView = createMapView({
 });
 
 mapView.setFollow(follow);
-mapView.setUserDragHandler((latlng) => tracker.teleport(latlng));
 
 /* ============================== Позиция ============================== */
 
@@ -109,11 +108,8 @@ const tracker = createTracker({
         if (detail && (status === 'denied' || status === 'insecure' || status === 'unavailable')) {
             ui.toast(detail, 'warn');
         }
-        ui.setSim(tracker.mode === 'sim', tracker.isWalking);
     },
 });
-
-tracker.setWalkTargetSource(() => store.nextTarget());
 
 /* ============================== Логика прохождения ============================== */
 
@@ -164,7 +160,6 @@ function evaluateArrival(fix) {
     const stats = store.routeStats();
     if (stats.finished) {
         ui.toast(`Маршрут «${store.activeRoute().name}» пройден полностью! 🎉`, 'ok');
-        tracker.stopWalk();
         releaseWakeLock();
     } else {
         ui.toast(`«${target.name}» пройдена 🎉 Осталось ${stats.count - stats.completedCount}`, 'ok');
@@ -390,26 +385,6 @@ function buildHandlers() {
             }
         },
 
-        onSimToggle(on) {
-            const seed = lastFix
-                ? { lat: lastFix.lat, lng: lastFix.lng }
-                : (store.activePlaces()[0] ?? FALLBACK_CENTER);
-
-            tracker.setMode(on ? 'sim' : 'real', { lat: seed.lat, lng: seed.lng });
-            store.setSetting('simulate', on);
-            ui.setSim(on, tracker.isWalking);
-            ui.toast(on ? 'Режим симуляции включён' : 'Вернулись к настоящему GPS');
-        },
-
-        onToggleAutowalk() {
-            const walking = tracker.toggleWalk();
-            ui.setSim(tracker.mode === 'sim', walking);
-            if (walking) {
-                requestWakeLock();
-                if (!store.nextTarget()) ui.toast('Идти некуда: маршрут пуст или пройден', 'warn');
-            }
-        },
-
         onUpdateApp() {
             if (!updateReady) return location.reload();
             updateReady.postMessage({ type: 'SKIP_WAITING' });
@@ -473,15 +448,7 @@ function boot() {
     renderAll();
     refreshNetworkChip();
 
-    // Режим симуляции восстанавливаем из настроек, иначе после перезагрузки
-    // отладочный сеанс каждый раз начинался бы заново.
-    if (store.getState().settings.simulate) {
-        const seed = places[0] ?? FALLBACK_CENTER;
-        tracker.setMode('sim', { lat: seed.lat, lng: seed.lng });
-        ui.setSim(true, false);
-    } else {
-        tracker.start();
-    }
+    tracker.start();
 
     setInterval(() => {
         if (lastFix) ui.setFixAge(Date.now() - lastFix.timestamp);

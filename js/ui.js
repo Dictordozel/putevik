@@ -25,7 +25,6 @@ const GPS_TEXT = {
     denied: 'Нет доступа к геопозиции',
     unavailable: 'GPS недоступен',
     insecure: 'Нужен HTTPS',
-    sim: 'Симуляция',
 };
 
 const TOAST_MS = 3200;
@@ -74,9 +73,6 @@ export function createUI(handlers) {
         btnClearRoute: $('btn-clear-route'),
 
         devPanel: $('dev-panel'),
-        simToggle: $('sim-toggle'),
-        simControls: $('sim-controls'),
-        btnAutowalk: $('btn-autowalk'),
         devGps: $('dev-gps'),
         devCoords: $('dev-coords'),
         devAge: $('dev-age'),
@@ -181,8 +177,6 @@ export function createUI(handlers) {
         el.importFile.value = '';   // иначе повторный выбор того же файла не сработает
     });
 
-    el.simToggle.addEventListener('change', () => handlers.onSimToggle?.(el.simToggle.checked));
-    el.btnAutowalk.addEventListener('click', () => handlers.onToggleAutowalk?.());
     el.btnUpdate.addEventListener('click', () => handlers.onUpdateApp?.());
 
     /* ============================== Список точек ============================== */
@@ -347,8 +341,8 @@ export function createUI(handlers) {
         el.devGps.textContent = detail ? `${status} — ${detail}` : status;
         el.devCoords.textContent = fix ? `${fix.lat.toFixed(5)}, ${fix.lng.toFixed(5)}` : '—';
 
-        // Настоящий GPS недоступен — единственный способ продолжить это симуляция,
-        // поэтому один раз сами раскрываем раздел с её тумблером.
+        // При проблемах с GPS один раз сами раскрываем раздел с подробностями:
+        // координаты и возраст фикса показывают, что именно происходит.
         if (!devHinted && ['denied', 'insecure', 'unavailable'].includes(status)) {
             devHinted = true;
             el.devPanel.open = true;
@@ -365,12 +359,6 @@ export function createUI(handlers) {
         el.offlineChip.lastChild.textContent = isOffline
             ? ' Нет сети — карта неполная'
             : ' Тайлы не загружаются';
-    }
-
-    function setSim(on, walking) {
-        el.simToggle.checked = on;
-        el.simControls.hidden = !on;
-        el.btnAutowalk.textContent = walking ? '⏸ Остановить' : '▶ Идти по маршруту';
     }
 
     function setUpdateAvailable(on) {
@@ -448,7 +436,6 @@ export function createUI(handlers) {
         setGps,
         setFixAge,
         setOffline,
-        setSim,
         setUpdateAvailable,
         renderRoutes,
         openRoutesSheet,

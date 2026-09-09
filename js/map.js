@@ -194,9 +194,6 @@ export function createMapView({ el, onMapClick, onCheckpointMoved, onTilesStateC
 
     /* ------------------------------ пользователь ------------------------------ */
 
-    let onUserDragged = null;
-    let userDragging = false;
-
     /**
      * Маркер позиции — L.marker с divIcon, а не circleMarker.
      *
@@ -204,32 +201,20 @@ export function createMapView({ el, onMapClick, onCheckpointMoved, onTilesStateC
      * SVG-рендерера, поэтому не зависит от того, в какой слой попал. Прежний
      * circleMarker с принудительным pane: 'markerPane' требовал, чтобы Leaflet
      * создал отдельный SVG-рендерер в чужом слое, — лишняя зависимость там,
-     * где нужна надёжность. Плюс перетаскивание теперь даёт сам Leaflet,
-     * а вид (кольцо и пульсация) задаётся из CSS.
+     * где нужна надёжность. Вид (кольцо и пульсация) задаётся из CSS.
      */
     function createUserMarker(latlng) {
-        const marker = L.marker(latlng, {
+        return L.marker(latlng, {
             icon: L.divIcon({
                 className: '',
                 html: '<div class="user-dot"><span class="user-dot__pulse"></span></div>',
                 iconSize: [22, 22],
                 iconAnchor: [11, 11],
             }),
-            draggable: false,       // включается только в режиме симуляции
-            autoPan: false,
+            interactive: false,    // маркер позиции ничего не должен перехватывать
             keyboard: false,
             zIndexOffset: 1000,    // поверх маркеров контрольных точек
-            title: 'Ваша позиция',
         }).addTo(map);
-
-        marker.on('dragstart', () => { userDragging = true; });
-        marker.on('dragend', () => { userDragging = false; });
-        marker.on('drag dragend', (event) => {
-            const { lat, lng } = event.target.getLatLng();
-            onUserDragged?.({ lat, lng });
-        });
-
-        return marker;
     }
 
     function setUser(fix) {
@@ -248,26 +233,16 @@ export function createMapView({ el, onMapClick, onCheckpointMoved, onTilesStateC
 
             userMarker = createUserMarker(latlng);
         } else {
-            // Во время перетаскивания позицию задаёт палец, а не входящий фикс,
-            // иначе маркер дёргается под курсором.
-            if (!userDragging) userMarker.setLatLng(latlng);
+            userMarker.setLatLng(latlng);
             accuracyCircle.setLatLng(latlng).setRadius(fix.accuracy);
         }
 
         if (!hasCenteredOnUser) {
             hasCenteredOnUser = true;
             map.setView(latlng, Math.max(map.getZoom(), 16));
-        } else if (follow && !userDragging) {
+        } else if (follow) {
             map.panTo(latlng, { animate: true, duration: .4 });
         }
-    }
-
-    /** В симуляции маркер тащится мышью или пальцем — это и есть перемещение. */
-    function setUserDraggable(on) {
-        if (!userMarker?.dragging) return;
-        if (on) userMarker.dragging.enable();
-        else userMarker.dragging.disable();
-        userMarker.getElement()?.classList.toggle('user-draggable', on);
     }
 
     /* ------------------------------ публичный интерфейс ------------------------------ */
@@ -278,10 +253,6 @@ export function createMapView({ el, onMapClick, onCheckpointMoved, onTilesStateC
         renderRoute,
         setLeg,
         setUser,
-
-        setUserDragHandler(fn) {
-            onUserDragged = fn;
-        },
 
         setAddMode(on) {
             el.classList.toggle('adding', on);
